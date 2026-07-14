@@ -141,6 +141,26 @@ def upsert_score(con, ticker: str, score_date: dt.date | None = None, **cols) ->
     )
 
 
+def merge_warnings(con, ticker: str, codes: list[str], score_date: dt.date | None = None) -> None:
+    """Union new warning codes into data_warnings without clobbering existing ones.
+
+    Stage 2 and Stage 3 both write warnings into the same row, and Stage 3 runs
+    second — a plain overwrite would erase the yfinance coverage gaps that Stage 2
+    recorded, which are exactly what the dashboard surfaces.
+    """
+    score_date = score_date or dt.date.today()
+    existing = con.execute(
+        "SELECT data_warnings FROM scores WHERE ticker = ? AND score_date = ?",
+        [ticker, score_date],
+    ).fetchone()
+    current = (existing[0] or "").split(",") if existing else []
+    merged = sorted({c for c in [*current, *codes] if c})
+    con.execute(
+        "UPDATE scores SET data_warnings = ? WHERE ticker = ? AND score_date = ?",
+        [",".join(merged) or None, ticker, score_date],
+    )
+
+
 def latest_scores(con) -> pd.DataFrame:
     """Most recent score row per ticker, joined to universe."""
     return con.execute(
@@ -167,6 +187,21 @@ def add_exclusion(con, ticker: str, reason: str, detail: str = "", stage: int | 
         [ticker, reason, detail, stage, dt.date.today()],
     )
     set_status(con, [ticker], "excluded")
+
+
+def exclusions_for_ticker(con, ticker: str) -> pd.DataFrame:
+    """Every exclusion ever recorded for one ticker, reversed ones included.
+
+    The audit trail, not the current verdict: a reversed exclusion is still part
+    of the story of why a ticker is where it is.
+    """
+    return con.execute(
+        """
+        SELECT reason, detail, stage, excluded_date, reversed FROM exclusions
+        WHERE ticker = ? ORDER BY excluded_date DESC, reason
+        """,
+        [ticker],
+    ).df()
 
 
 def exclusion_counts(con) -> pd.DataFrame:

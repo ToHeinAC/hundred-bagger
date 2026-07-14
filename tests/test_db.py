@@ -158,6 +158,22 @@ def test_add_exclusion_is_idempotent_for_the_same_reason_and_date(con):
     assert (n, detail) == (1, "second")
 
 
+def test_exclusions_for_ticker_returns_the_full_audit_trail_including_reversed(con):
+    db.replace_universe(con, [_rows(con, "AAA"), _rows(con, "BBB")])
+    db.add_exclusion(con, "AAA", "CASH_BURNER", "burning", stage=2)
+    db.add_exclusion(con, "AAA", "ASSET_BLOAT", "bloated", stage=3)
+    db.add_exclusion(con, "BBB", "CHRONIC_DILUTER")
+    con.execute("UPDATE exclusions SET reversed = TRUE WHERE reason = 'CASH_BURNER'")
+    df = db.exclusions_for_ticker(con, "AAA")
+    assert sorted(df["reason"]) == ["ASSET_BLOAT", "CASH_BURNER"]  # reversed one still shown
+    assert df.set_index("reason").loc["CASH_BURNER", "reversed"]
+
+
+def test_exclusions_for_ticker_on_a_clean_ticker_is_empty(con):
+    db.replace_universe(con, [_rows(con)])
+    assert db.exclusions_for_ticker(con, "AAA").empty
+
+
 def test_exclusion_counts_groups_by_reason_and_ignores_reversed(con):
     db.replace_universe(con, [_rows(con, "AAA"), _rows(con, "BBB")])
     db.add_exclusion(con, "AAA", "CASH_BURNER")
