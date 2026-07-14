@@ -84,7 +84,7 @@ def metrics(ticker: str) -> tuple[dict, list[str]]:
 # --- scoring ----------------------------------------------------------------
 
 
-def _band(value: float | None, bands: tuple, lower_is_better: bool = False) -> int:
+def band(value: float | None, bands: tuple, lower_is_better: bool = False) -> int:
     """Award the points of the first band the value clears. None scores 0."""
     if value is None:
         return 0
@@ -97,13 +97,13 @@ def _band(value: float | None, bands: tuple, lower_is_better: bool = False) -> i
 def quant_score(m: dict) -> int:
     """0-14. See docs/scoring.md."""
     return (
-        _band(m["revenue_cagr_3y"], config.REVENUE_CAGR_BANDS)
-        + _band(m["gross_margin"], config.GROSS_MARGIN_BANDS)
-        + _band(m["operating_margin"], config.OPERATING_MARGIN_BANDS)
-        + _band(m["fcf_margin"], config.FCF_MARGIN_BANDS)
-        + _band(m["debt_to_equity"], config.DEBT_TO_EQUITY_BANDS, lower_is_better=True)
-        + _band(m["share_change_pct"], config.SHARE_CHANGE_BANDS, lower_is_better=True)
-        + _band(m["insider_pct"], config.INSIDER_OWNERSHIP_BANDS)
+        band(m["revenue_cagr_3y"], config.REVENUE_CAGR_BANDS)
+        + band(m["gross_margin"], config.GROSS_MARGIN_BANDS)
+        + band(m["operating_margin"], config.OPERATING_MARGIN_BANDS)
+        + band(m["fcf_margin"], config.FCF_MARGIN_BANDS)
+        + band(m["debt_to_equity"], config.DEBT_TO_EQUITY_BANDS, lower_is_better=True)
+        + band(m["share_change_pct"], config.SHARE_CHANGE_BANDS, lower_is_better=True)
+        + band(m["insider_pct"], config.INSIDER_OWNERSHIP_BANDS)
     )
 
 

@@ -21,7 +21,7 @@ def m(**kw) -> dict:
     return {**NO_METRICS, **kw}
 
 
-# --- _band ------------------------------------------------------------------
+# --- band ------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("value,expected", [
@@ -30,7 +30,7 @@ def m(**kw) -> dict:
     (0.10, 1), (0.09, 0),
 ])
 def test_band_higher_is_better_awards_points_at_each_boundary(value, expected):
-    assert scorer._band(value, config.REVENUE_CAGR_BANDS) == expected
+    assert scorer.band(value, config.REVENUE_CAGR_BANDS) == expected
 
 
 @pytest.mark.parametrize("value,expected", [
@@ -38,12 +38,12 @@ def test_band_higher_is_better_awards_points_at_each_boundary(value, expected):
     (0.75, 1), (0.76, 0),
 ])
 def test_band_lower_is_better_awards_points_at_each_boundary(value, expected):
-    assert scorer._band(value, config.DEBT_TO_EQUITY_BANDS, lower_is_better=True) == expected
+    assert scorer.band(value, config.DEBT_TO_EQUITY_BANDS, lower_is_better=True) == expected
 
 
 def test_band_of_missing_data_scores_zero():
-    assert scorer._band(None, config.GROSS_MARGIN_BANDS) == 0
-    assert scorer._band(None, config.DEBT_TO_EQUITY_BANDS, lower_is_better=True) == 0
+    assert scorer.band(None, config.GROSS_MARGIN_BANDS) == 0
+    assert scorer.band(None, config.DEBT_TO_EQUITY_BANDS, lower_is_better=True) == 0
 
 
 # --- _cagr ------------------------------------------------------------------
