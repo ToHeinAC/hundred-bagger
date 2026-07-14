@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import time
 from pathlib import Path
 
-from edgar import Company, set_identity
+from edgar import Company
 
 from src import config, db
+from src.filings import identity as _identity
+from src.filings import throttle as _throttle
 
 # Item 1 runs to 80k+ chars for some filers. Claude has to actually read this,
 # so cap it and say in the file when we did.
@@ -26,23 +27,6 @@ ITEM1_CHAR_CAP = 40_000
 
 
 # --- fetch ------------------------------------------------------------------
-
-
-def _identity() -> None:
-    """The SEC requires a contact email on every request. Fail loudly, not later."""
-    if not config.SEC_USER_AGENT:
-        raise SystemExit(
-            "SEC_USER_AGENT is unset. EDGAR rejects anonymous requests.\n"
-            "Set it in .env, e.g.  SEC_USER_AGENT=Your Name your@email.com"
-        )
-    set_identity(config.SEC_USER_AGENT)
-
-
-def _throttle() -> None:
-    """<= 10 req/s (PRD §9). Exceeding it gets the user's IP blocked, so this is
-    enforced in code rather than left to discipline. Conservative: edgartools may
-    issue more than one request per call, and we sleep before each entry point."""
-    time.sleep(config.SEC_SLEEP)
 
 
 def _header(ticker: str, filing, truncated: int | None) -> str:

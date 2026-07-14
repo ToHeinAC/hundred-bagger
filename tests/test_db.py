@@ -219,3 +219,54 @@ def test_funnel_reports_active_count_per_stage(con):
     assert int(df.loc[1, "active"]) == 1
     assert int(df.loc[2, "n"]) == 1
     assert int(df.loc[2, "active"]) == 0  # Stage 2 and excluded — status is orthogonal
+
+
+# --- Phase 3: alerts, insider events, monitoring ---------------------------
+
+
+def test_the_same_alert_twice_in_a_day_is_one_alert(con):
+    """Re-running /hunt-signals must not resurrect an alert the user acknowledged."""
+    assert db.add_alert(con, "AAA", "buy", "HIGH", "cluster buy") is True
+    assert db.add_alert(con, "AAA", "buy", "HIGH", "cluster buy") is False
+    assert len(db.alerts(con)) == 1
+
+
+def test_a_different_message_is_a_different_alert(con):
+    db.add_alert(con, "AAA", "buy", "HIGH", "cluster buy")
+    db.add_alert(con, "AAA", "sell", "MEDIUM", "DILUTION")
+    assert len(db.alerts(con)) == 2
+
+
+def test_acknowledging_an_alert_sticks(con):
+    db.add_alert(con, "AAA", "buy", "HIGH", "cluster buy")
+    alert_id = int(db.alerts(con).iloc[0]["id"])
+
+    db.acknowledge_alerts(con, [alert_id])
+
+    assert db.alerts(con, acknowledged=True).iloc[0]["id"] == alert_id
+    assert db.alerts(con, acknowledged=False).empty
+    assert db.status_summary(con)["unacked_alerts"] == 0
+
+
+def test_rechecking_replaces_a_tickers_insider_events(con):
+    db.replace_insider_events(con, "AAA", [{"insider_name": "X", "shares": 10}])
+    db.replace_insider_events(con, "AAA", [{"insider_name": "Y", "shares": 20}])
+    events = db.insider_events(con, "AAA")
+    assert len(events) == 1
+    assert events.iloc[0]["insider_name"] == "Y"
+
+
+def test_a_second_check_on_the_same_day_overwrites_the_log_row(con):
+    db.add_monitoring_log(con, "AAA", ["DILUTION"], "REVIEW")
+    db.add_monitoring_log(con, "AAA", ["DILUTION", "RESTATEMENT"], "SELL")
+    log = db.monitoring_log(con, "AAA")
+    assert len(log) == 1
+    assert log.iloc[0]["recommended_action"] == "SELL"
+    assert db.status_summary(con)["monitor_last_run"] == dt.date.today()
+
+
+def test_snapshots_are_keyed_by_ticker_and_day(con):
+    db.upsert_snapshot(con, "AAA", price=10.0, value=100.0)
+    db.upsert_snapshot(con, "AAA", price=12.0, value=120.0)
+    rows = con.execute("SELECT price, value FROM portfolio_snapshots").fetchall()
+    assert rows == [(12.0, 120.0)]

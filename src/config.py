@@ -120,6 +120,48 @@ STAGE_3_GATE = 6  # roic_score  >= 6 / 10
 MOAT_TOTAL_GATE = 6  # moat_total >= 6 / 18
 MOAT_DURABILITY_GATE = 3  # moat_durability >= 3 / 5
 
+# --- Phase 3: entry signals (Form 4 + valuation) ----------------------------
+# A cluster buy is the signal Mayer rates highest: several insiders, buying with
+# their own money, on the open market, at the same time. Only transaction code
+# "P" counts — a grant or an option exercise is compensation, not conviction.
+
+INSIDER_LOOKBACK_DAYS = 180  # how far back to pull Form 4s
+CLUSTER_WINDOW_DAYS = 90  # insiders must buy within this rolling window
+CLUSTER_MIN_INSIDERS = 3  # distinct people, not distinct filings
+CLUSTER_MIN_VALUE = 100_000  # aggregate USD across the window
+
+# Valuation gates. Not a scoring rubric — three independent yes/no tests. A
+# missing ratio is an ungated (unknown) test, never a passed one.
+MAX_P_FCF = 20.0
+MAX_EV_EBITDA = 15.0
+MAX_PEG = 2.0
+
+# Price zone: position in the 52-week range, 0.0 at the low, 1.0 at the high.
+BUY_ZONE_MAX = 0.50  # lower half of the range
+
+# --- Phase 3: sell triggers (mechanical, evaluated in Python) ---------------
+# The thesis-break table. Each rule needs TWO consecutive bad years, or a move
+# large enough that one year is not noise — a single soft quarter is not a sell.
+
+SELL_ROIC_FLOOR = 0.10  # ROIC below this for SELL_TREND_YEARS running
+SELL_TREND_YEARS = 2
+SELL_MARGIN_DROP = 0.05  # operating margin down >5pp vs 2 years ago
+SELL_DILUTION_PCT = 0.05  # share count up >5% year-over-year
+
+# Red flags Claude reads out of recent 8-Ks. Any one of them is a SELL.
+RED_FLAGS = (
+    "RESTATEMENT",
+    "GOING_CONCERN",
+    "AUDITOR_RESIGNATION",
+    "SEC_INVESTIGATION",
+    "KEY_MAN_DEPARTURE",
+    "MATERIAL_IMPAIRMENT",
+)
+
+EIGHTK_LOOKBACK_DAYS = 90
+EIGHTK_CHAR_CAP = 20_000
+
 # --- Paths ------------------------------------------------------------------
 
 MOAT_INPUT_DIR = REPO_ROOT / "data" / "moat_input"
+MONITOR_INPUT_DIR = REPO_ROOT / "data" / "monitor_input"

@@ -213,6 +213,150 @@ def exclusion_counts(con) -> pd.DataFrame:
     ).df()
 
 
+# --- insider events (Phase 3) -----------------------------------------------
+
+
+def replace_insider_events(con, ticker: str, rows: list[dict]) -> int:
+    """Re-running /hunt-signals restates a ticker's Form 4 history rather than
+    appending to it. The table has a surrogate key and no natural one, so the
+    delete is what keeps the stage idempotent."""
+    con.execute("DELETE FROM insider_events WHERE ticker = ?", [ticker])
+    for r in rows:
+        con.execute(
+            """
+            INSERT INTO insider_events
+                (ticker, filed_date, transaction_date, insider_name, insider_title,
+                 transaction_type, shares, price, value, is_cluster_buy, signal_strength)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ticker, r.get("filed_date"), r.get("transaction_date"),
+                r.get("insider_name"), r.get("insider_title"), r.get("transaction_type"),
+                r.get("shares"), r.get("price"), r.get("value"),
+                r.get("is_cluster_buy", False), r.get("signal_strength"),
+            ],
+        )
+    return len(rows)
+
+
+def insider_events(con, ticker: str | None = None) -> pd.DataFrame:
+    sql = "SELECT * FROM insider_events"
+    params: list = []
+    if ticker:
+        sql += " WHERE ticker = ?"
+        params.append(ticker)
+    return con.execute(sql + " ORDER BY transaction_date DESC", params).df()
+
+
+# --- alerts (Phase 3) --------------------------------------------------------
+
+
+def add_alert(con, ticker: str, alert_type: str, severity: str, message: str) -> bool:
+    """Raise an alert unless the identical one already exists today.
+
+    `alerts` has a surrogate key, so nothing in the schema stops a second
+    /hunt-signals run from raising the same alert twice. Dedupe here: same
+    ticker + type + message on the same day is the same alert, and re-raising it
+    would silently reset an acknowledgement the user already made. Returns
+    whether a row was actually written.
+    """
+    exists = con.execute(
+        """
+        SELECT 1 FROM alerts
+        WHERE ticker = ? AND alert_type = ? AND message = ? AND created_date = ?
+        """,
+        [ticker, alert_type, message, dt.date.today()],
+    ).fetchone()
+    if exists:
+        return False
+    con.execute(
+        """
+        INSERT INTO alerts (ticker, alert_type, severity, message, created_date)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [ticker, alert_type, severity, message, dt.date.today()],
+    )
+    return True
+
+
+def alerts(con, acknowledged: bool | None = None) -> pd.DataFrame:
+    sql = "SELECT * FROM alerts"
+    params: list = []
+    if acknowledged is not None:
+        sql += " WHERE acknowledged = ?"
+        params.append(acknowledged)
+    return con.execute(sql + " ORDER BY created_date DESC, id DESC", params).df()
+
+
+def acknowledge_alerts(con, ids: list[int]) -> int:
+    """The one write the dashboard is allowed to make (PRD §6 permits the UI to
+    write only where the user is the author of the fact — here, "I have seen this")."""
+    for i in ids:
+        con.execute("UPDATE alerts SET acknowledged = TRUE WHERE id = ?", [int(i)])
+    return len(ids)
+
+
+# --- monitoring (Phase 3) ----------------------------------------------------
+
+
+def add_monitoring_log(
+    con, ticker: str, flags: list[str], action: str, notes: str = "",
+    check_date: dt.date | None = None,
+) -> None:
+    """One log row per ticker per check_date; re-checking overwrites it.
+
+    `flags` is stored as a JSON array so a code can never be confused with a
+    substring of another (`ROIC_DETERIORATION` vs a hypothetical `ROIC_DET`).
+    """
+    check_date = check_date or dt.date.today()
+    con.execute(
+        "DELETE FROM monitoring_log WHERE ticker = ? AND check_date = ?", [ticker, check_date]
+    )
+    con.execute(
+        """
+        INSERT INTO monitoring_log (ticker, check_date, flags, recommended_action, notes)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [ticker, check_date, json.dumps(flags), action, notes or None],
+    )
+
+
+def monitoring_log(con, ticker: str | None = None) -> pd.DataFrame:
+    sql = "SELECT * FROM monitoring_log"
+    params: list = []
+    if ticker:
+        sql += " WHERE ticker = ?"
+        params.append(ticker)
+    return con.execute(sql + " ORDER BY check_date DESC, ticker", params).df()
+
+
+def upsert_snapshot(con, ticker: str, snapshot_date: dt.date | None = None, **cols) -> None:
+    snapshot_date = snapshot_date or dt.date.today()
+    con.execute(
+        """
+        INSERT INTO portfolio_snapshots
+            (ticker, snapshot_date, price, value, unrealized_return_pct, status_badge)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (ticker, snapshot_date) DO UPDATE SET
+            price = excluded.price,
+            value = excluded.value,
+            unrealized_return_pct = excluded.unrealized_return_pct,
+            status_badge = excluded.status_badge
+        """,
+        [
+            ticker, snapshot_date, cols.get("price"), cols.get("value"),
+            cols.get("unrealized_return_pct"), cols.get("status_badge"),
+        ],
+    )
+
+
+def open_positions(con) -> pd.DataFrame:
+    """Phase 4 populates this table; until then /hunt-monitor runs on --ticker."""
+    return con.execute(
+        "SELECT * FROM portfolio WHERE status = 'open' ORDER BY ticker"
+    ).df()
+
+
 # --- reporting --------------------------------------------------------------
 
 
