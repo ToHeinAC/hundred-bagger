@@ -29,3 +29,8 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Data (DuckDB is the app state, not source)
+data/
+*.duckdb
+*.duckdb.wal
