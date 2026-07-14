@@ -67,9 +67,59 @@ CHRONIC_DILUTER_PCT = 0.05  # >5%/yr share growth
 EXCESSIVE_LEVERAGE_DE = 3.0  # debt/equity > 3
 REVENUE_DECLINE_CAGR = 0.0  # 3y revenue CAGR < 0
 
+# --- SEC EDGAR (Stage 3 + Stage 4 source) ------------------------------------
+
+SEC_BASE = "https://data.sec.gov"
+SEC_TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_SLEEP = 0.11  # <= 10 req/s, enforced in code — exceeding it gets the IP blocked
+SEC_TIMEOUT = 30
+
+# --- Stage 3: ROIC + avoidance rubric (0-10) --------------------------------
+# Same first-band-wins evaluation as Stage 2 (scorer.band).
+
+ROIC_BANDS = ((0.20, 5), (0.15, 4), (0.12, 3), (0.10, 2), (0.07, 1))  # 5 pts
+PIOTROSKI_BANDS = ((7, 3), (5, 2), (4, 1))  # 3 pts
+ALTMAN_Z_BANDS = ((3.0, 2), (1.8, 1))  # 2 pts
+
+ROIC_MAX_SCORE = 10
+ROIC_MEDIAN_YEARS = 3  # median of the last 3 fiscal years
+DEFAULT_TAX_RATE = 0.21  # used when the effective rate is unavailable or absurd
+
+# --- Auto-exclusion rules (Stage 3) -----------------------------------------
+
+ASSET_BLOAT_GAP = 0.10  # asset CAGR outruns EBITDA CAGR by > 10pp
+ALTMAN_Z_DISTRESS = 1.8  # classic bankruptcy-risk zone
+
+# --- Stage 4: moat ----------------------------------------------------------
+# The *rubric* lives in .claude/skills/hunt-moat/SKILL.md — Claude applies it.
+# Only the shape of the answer and the arithmetic on it live here.
+
+MOAT_DIMENSIONS = ("distribution", "brand", "network", "regulatory", "switching", "cost")
+MOAT_DIMENSION_MAX = 3  # six dimensions x 0-3 -> moat_total 0-18
+MOAT_DURABILITY_MAX = 5
+REINVEST_RUNWAYS = ("narrow", "medium", "wide")
+
+# How the 0-18 total and the 0-5 durability collapse into the 0-10 moat_score
+# that feeds total_score. Durability carries 40%: a wide but eroding moat is
+# worth less over a ten-year hold than a narrow durable one.
+MOAT_TOTAL_WEIGHT = 6
+MOAT_DURABILITY_WEIGHT = 4
+
+
+def moat_score(moat_total: int, moat_durability: int) -> int:
+    """Derive the 0-10 moat_score. The one place 18 + 5 becomes 10."""
+    breadth = MOAT_TOTAL_WEIGHT * moat_total / (len(MOAT_DIMENSIONS) * MOAT_DIMENSION_MAX)
+    durability = MOAT_DURABILITY_WEIGHT * moat_durability / MOAT_DURABILITY_MAX
+    return round(breadth + durability)
+
+
 # --- Stage gates ------------------------------------------------------------
 
 STAGE_2_GATE = 8  # quant_score >= 8 / 14
 STAGE_3_GATE = 6  # roic_score  >= 6 / 10
 MOAT_TOTAL_GATE = 6  # moat_total >= 6 / 18
 MOAT_DURABILITY_GATE = 3  # moat_durability >= 3 / 5
+
+# --- Paths ------------------------------------------------------------------
+
+MOAT_INPUT_DIR = REPO_ROOT / "data" / "moat_input"

@@ -6,9 +6,11 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = [
     "duckdb>=0.10",
+    "edgartools>=2.20",
     "pandas>=2.0",
     "plotly>=5.20",
     "python-dotenv>=1.0",
+    "requests>=2.31",
     "streamlit>=1.35",
     "yfinance>=0.2.40",
 ]
