@@ -61,4 +61,5 @@ Report the histogram shape and the advance count. Suggest the user open the
 dashboard (`uv run streamlit run src/app.py --server.port 8501`) to inspect the
 ranked watchlist and the exclusion breakdown.
 
-Stage 3 (`/hunt-roic`) is not implemented yet — do not offer it.
+Stage 2 survivors are the input to `/hunt-roic`, which cross-checks them against
+SEC XBRL — a primary source. Offer it as the next step.

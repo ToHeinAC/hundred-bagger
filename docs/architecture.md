@@ -53,8 +53,9 @@ judgement is three steps, not one:
    `uv run python -m src.moat fetch --stage 3` → `data/moat_input/*.txt`
 2. **Judge** — the skill instructs Claude Code to read those files and produce
    structured JSON against a rubric held **in the SKILL.md**, not in Python.
-3. **Save** — Claude calls `uv run python -m src.moat save --ticker X --json '{...}'`,
-   which validates and persists.
+3. **Save** — Claude calls `uv run python -m src.moat save --ticker X --json '{...}'`
+   (or `--json-file PATH`, since a long moat JSON on a command line is fragile),
+   which validates the shape, does the arithmetic, and persists.
 
 The Python side never sees a prompt; the Claude side never sees SQL.
 
@@ -63,8 +64,14 @@ is what makes the pattern worth the extra steps, and it is why the temptation to
 "just add the SDK" must be resisted — `grep -r anthropic src/ pyproject.toml`
 returning nothing is an explicit success criterion (PRD §11).
 
-*Phase 1 contains no judgement-bearing stage.* The pattern lands with
-`/hunt-moat` in Phase 2.
+The division inside step 3 matters as much as the rubric's location: **Claude
+judges, Python computes.** Claude supplies the six 0–3 dimension scores; `moat.py`
+sums them into `moat_total` and derives `moat_score`. A `moat_total` in the payload
+is ignored — the judge does not get to do the addition.
+
+*Shipped in Phase 2 with `/hunt-moat`* — the pipeline's first judgement-bearing
+stage. `/hunt-monitor` (8-K red flags) and `/hunt-portfolio suggest` will reuse the
+same three steps.
 
 ## Stage vs status
 
@@ -106,11 +113,23 @@ silently:
 Stage 3 cross-checks every survivor's fundamentals against SEC XBRL, which is a
 primary source, precisely because Stage 2's source is not.
 
+EDGAR degrades differently, and worse. A missing XBRL tag is loud — it flags
+`XBRL_INCOMPLETE` and scores 0. A **stale** one is silent: a company that migrated
+tags mid-life keeps reporting the retired one for its old years, so naively taking
+the first tag with data yields a series that quietly stops years ago and a
+confidently wrong number. `xbrl.annual()` therefore prefers the most *current*
+series in a tag chain, not the first. This cost us a real 6× error before it was
+caught — see [data-sources.md](data-sources.md#2-xbrl-tag-coverage-is-uneven--and-the-failure-mode-is-silent).
+
 ## Streamlit read-only discipline
 
-Every dashboard page opens DuckDB with `read_only=True`. In Phase 1 there is no
-write path from the UI at all; the Portfolio page (Phase 4) will be the sole
-exception. A dashboard bug can therefore never corrupt screening state.
+Every dashboard page opens DuckDB with `read_only=True`. Through Phase 2 there is
+still no write path from the UI at all; the Portfolio page (Phase 4) will be the
+sole exception. A dashboard bug can therefore never corrupt screening state.
+
+The Stock Detail page (Phase 2) makes the dashboard's **only** network call — one
+cached yfinance request for a 1-year price chart, which degrades to a caption if it
+fails. Everything else on every page comes from DuckDB.
 
 The app carries a **safe exit button** that sends `SIGTERM` to its own PID. It is
 never a port-kill — that risks terminating SSH or forwarded connections.
@@ -119,15 +138,20 @@ never a port-kill — that risks terminating SSH or forwarded connections.
 
 ```
 .claude/skills/hunt-*/SKILL.md   # one per pipeline stage; no Python
+                                 # hunt-moat/SKILL.md holds the moat RUBRIC
 src/
   app.py  pages/                 # Streamlit; read-only
   config.py                      # thresholds (versioned) + .env scalars
   db.py  schema.sql              # the ONLY SQL surface; 9 tables
-  universe.py  scorer.py         # Phase 1
-  roic.py  moat.py               # Phase 2 (not yet)
+  universe.py  scorer.py         # Phase 1 — yfinance
+  xbrl.py                        # Phase 2 — the EDGAR client; the ONE place
+                                 #   the 10 req/s cap is enforced
+  roic.py  moat.py               # Phase 2 — Stage 3 scoring, Stage 4 fetch/save
   signals.py  monitor.py  portfolio.py   # Phases 3-4 (not yet)
 tests/                           # network fully mocked; green offline
-data/100baggers.duckdb           # gitignored — the app's entire state
+data/
+  100baggers.duckdb              # gitignored — the app's entire state
+  moat_input/*.txt               # gitignored — 10-K Item 1, fetch → judge → save
 ```
 
 ## Why DuckDB
@@ -141,4 +165,5 @@ complete and honest recovery procedure.
 
 - [schema.md](schema.md) — full DDL and column semantics
 - [scoring.md](scoring.md) — rubrics, auto-exclusions, stage gates
+- [data-sources.md](data-sources.md) — EDGAR contract, rate limits, tag-coverage traps
 - [../PRD.md](../PRD.md) — purpose, scope, phases

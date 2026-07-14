@@ -97,13 +97,23 @@ Comma-separated uppercased metric names that **yfinance did not return** for thi
 
 Any ticker with a non-NULL `data_warnings` that lands near the Stage 2 gate deserves manual review before it is written off.
 
-### Stage 3 columns — empty until Phase 2 (`/hunt-roic`)
+### Stage 3 columns — written by `/hunt-roic`
 
-`roic_3y_median`, `piotroski_f`, `altman_z`, `asset_cagr`, `ebitda_cagr`, `roic_score` (0–10). Intended source is SEC EDGAR XBRL `companyfacts`, a primary source, which also serves as a cross-check on the yfinance figures above.
+`roic_3y_median`, `piotroski_f`, `altman_z`, `asset_cagr`, `ebitda_cagr`, `roic_score` (0–10). Source is SEC EDGAR XBRL `companyfacts`, a primary source, which also serves as a cross-check on the yfinance figures above.
 
-### Stage 4 columns — empty until Phase 2 (`/hunt-moat`)
+**`roic_score` has three distinct states, and collapsing them loses the point of the stage:**
 
-Written by Claude Code via the fetch→judge→save pattern, not computed in Python.
+| State | Means |
+|-------|-------|
+| `NULL` | Stage 3 never ran on this ticker. |
+| `0` **with** `XBRL_INCOMPLETE` in `data_warnings` | It ran and found nothing. **Unmeasured, not bad.** |
+| `0` with no warning | It ran, computed the metrics, and they genuinely scored zero. |
+
+Because `total_score` sums subscores with `coalesce(…, 0)`, an unrun stage and a zero-scoring one contribute identically to the total — so always read `total_score` next to `stage` and `data_warnings`, never alone. See [scoring.md §5](scoring.md).
+
+### Stage 4 columns — written by `/hunt-moat`
+
+Written by Claude Code via the fetch→judge→save pattern. Claude supplies the six dimension scores; **Python does the arithmetic** — `moat_total` is summed and `moat_score` derived in `src/moat.py`, never taken from the payload.
 
 | Column | Meaning |
 |--------|---------|
@@ -113,7 +123,7 @@ Written by Claude Code via the fetch→judge→save pattern, not computed in Pyt
 | `founder_led` | BOOLEAN. |
 | `reinvest_runway` | `narrow` \| `medium` \| `wide`. |
 | `moat_notes`, `key_risks` | Free text from Claude's reading of 10-K Item 1. |
-| `moat_score` | 0–10, **derived** from `moat_total` and `moat_durability`. This is the value that feeds `total_score`; `moat_total` (0–18) does not. The derivation is not implemented yet — see [scoring.md](scoring.md). |
+| `moat_score` | 0–10, **derived**: `round(6 × moat_total/18 + 4 × moat_durability/5)` (`config.moat_score()`). This is the value that feeds `total_score`; `moat_total` (0–18) does not. Durability carries 40% — a wide but eroding moat is worth less over a ten-year hold than a narrow durable one. See [scoring.md §6](scoring.md). |
 
 ## 4. `exclusions`
 

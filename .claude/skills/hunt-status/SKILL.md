@@ -36,8 +36,19 @@ no scheduler; nothing refreshes unless the user asks):
 
 State the dates plainly. Do not soften a stale pipeline.
 
+## What to run next
+
+Read `by_stage` and point at the gap:
+
+- Stage 1 tickers but few at Stage 2 → `/hunt-score`
+- Stage 2 survivors but none at Stage 3 → `/hunt-roic`
+- Stage 3 survivors but none at Stage 4 → `/hunt-moat`
+- Stage 4 names exist → that *is* Watchlist B, the funnel's output. Suggest the
+  dashboard's Watchlist and Stock Detail pages.
+
 ## Scope
 
-Stages 3–4, signals, monitoring, and portfolio are not implemented yet. Their
-counts will read zero. Say "not yet implemented" rather than "none found" —
-those mean very different things to a user deciding what to trust.
+Signals, monitoring, and portfolio (Phases 3–4) are not implemented yet. Their
+counts — `open_positions`, `unacked_alerts`, `monitor_last_run` — will read zero
+or null. Say "not yet implemented" rather than "none found": those mean very
+different things to a user deciding what to trust.

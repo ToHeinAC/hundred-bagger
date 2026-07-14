@@ -38,10 +38,20 @@ In Claude Code, invoke the skills:
 |---|---|---|
 | `/hunt-universe` | Stage 1 — build the candidate pool from hard filters | 5–10 min |
 | `/hunt-score` | Stage 2 — score 0–14 on fundamentals, auto-exclude | 15–30 min |
+| `/hunt-roic` | Stage 3 — ROIC, Piotroski F, Altman Z from SEC XBRL | 30–60 min |
+| `/hunt-moat` | Stage 4 — *you* read each 10-K Item 1 and score the moat | 10–30 min |
 | `/hunt-status` | Pipeline summary and data freshness (no network) | < 1 min |
 
-A first cycle is `/hunt-universe` → `/hunt-score` → `/hunt-status`, which takes
-you from roughly 8,000 US listings to a ranked shortlist.
+A full cycle is `/hunt-universe` → `/hunt-score` → `/hunt-roic` → `/hunt-moat`,
+which takes you from roughly 8,000 US listings to **Watchlist B**: the 20–50 names
+that cleared every gate. `/hunt-status` tells you where you are and what to run
+next.
+
+`/hunt-moat` is the one stage where Claude Code is the reasoning engine rather
+than a wrapper around a script. Python fetches the Item 1 text to disk, Claude
+reads it and scores it against a rubric that lives in the skill, and Python
+validates the JSON back into the database — the **fetch → judge → save** pattern.
+That is what makes the LLM-free app possible.
 
 Then open the dashboard:
 
@@ -49,29 +59,39 @@ Then open the dashboard:
 uv run streamlit run src/app.py --server.port 8501
 ```
 
-Pipeline Overview (funnel + exclusion breakdown) and Watchlist (ranked,
-filterable). It opens the database **read-only** and carries a safe exit button
-that terminates only its own process.
+Pipeline Overview (funnel + exclusion breakdown), Watchlist (ranked, filterable),
+and Stock Detail (price chart, every metric grouped by stage, moat notes, risks —
+enough to answer "why is this on my watchlist?" without re-running anything). It
+opens the database **read-only** and carries a safe exit button that terminates
+only its own process.
 
 Every module is also a CLI, which is exactly what the skills shell out to:
 
 ```bash
 uv run python -m src.universe --rebuild
 uv run python -m src.scorer   --batch [--limit N]
+uv run python -m src.roic     --batch [--limit N]
+uv run python -m src.moat     fetch --stage 3
+uv run python -m src.moat     save --ticker XYZ --json-file moat.json
 uv run python -m src.db       --status
 ```
 
 ## Status
 
-**Phase 1 of 4 is implemented** — universe, quantitative scoring, status, and the
-dashboard. The full 9-table schema ships now, so later phases never migrate.
+**Phases 1 and 2 of 4 are implemented** — the funnel now runs end to end and
+produces Watchlist B. The full 9-table schema shipped in Phase 1, so no stage ever
+migrates.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Universe, quant scoring (0–14), status, dashboard | **Done** |
-| 2 | ROIC from SEC XBRL, moat scoring by Claude | Not started |
+| 2 | ROIC from SEC XBRL (0–10), moat scoring by Claude (0–10), Stock Detail | **Done** |
 | 3 | Entry signals, position monitoring | Not started |
 | 4 | Portfolio recommendations | Not started |
+
+`SEC_USER_AGENT` is **mandatory** from Phase 2 on: the SEC rejects requests
+without a contact email. EDGAR's 10 req/s cap is enforced in code, which is why
+`/hunt-roic` takes 30–60 minutes and cannot be hurried.
 
 ## Configuration
 
@@ -83,12 +103,21 @@ dashboard. The full 9-table schema ships now, so later phases never migrate.
 
 ## A caveat worth reading
 
-yfinance is unreliable on microcaps. The pipeline **flags rather than excludes**
-on missing data: an absent metric scores 0 points and is recorded in
-`data_warnings`, but never triggers an auto-exclusion. So a low score can mean
-"Yahoo has no data" rather than "bad company" — the dashboard surfaces which.
-Stage 3 (Phase 2) cross-checks survivors against SEC XBRL, a primary source, for
-exactly this reason.
+Data sources are unreliable, and the pipeline is built to say so rather than to
+paper over it. It **flags rather than excludes** on missing data: an absent metric
+scores 0 points and is recorded in `data_warnings`, but never triggers an
+auto-exclusion.
+
+So **a low score can mean "the source has no data", not "bad company"** — and the
+dashboard always surfaces which. A `0` ROIC score carrying an `XBRL_INCOMPLETE`
+warning means *unmeasured*, not *bad*; a NULL means the stage never ran at all.
+Those three states are kept distinct on purpose.
+
+yfinance (Stage 2) is an unofficial scraper and is genuinely poor on microcaps.
+Stage 3 cross-checks every survivor against SEC XBRL — a primary source — for
+exactly that reason. See [docs/data-sources.md](docs/data-sources.md), which also
+documents the stale-XBRL-tag trap that silently reported a 2.4% ROIC where the
+truth was 14.5%.
 
 ## Tests
 
@@ -107,6 +136,7 @@ All network calls are mocked; the suite is green with no internet.
 | [docs/architecture.md](docs/architecture.md) | The Python/Claude seam |
 | [docs/schema.md](docs/schema.md) | DuckDB DDL and column semantics |
 | [docs/scoring.md](docs/scoring.md) | Rubrics, exclusions, stage gates |
+| [docs/data-sources.md](docs/data-sources.md) | EDGAR contract, rate limits, tag-coverage traps |
 | [AGENTS.md](AGENTS.md) | Rules for AI coding tools in this repo |
 
 ## Licence
