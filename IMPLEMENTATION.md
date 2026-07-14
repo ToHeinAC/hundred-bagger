@@ -6,8 +6,9 @@ under 500 lines and push detail down.
 
 **Phases 1, 2 and 3 of 4 are complete.** Universe → quant scoring → ROIC → moat →
 dashboard runs end to end against live data and produces Watchlist B. Phase 3 adds
-entry signals and position monitoring on top of it — **verified by mocked tests
-only, never yet run against live EDGAR** (see §6).
+entry signals and position monitoring on top of it — **live shakedown done
+2026-07-14 against real EDGAR + yfinance** (AMPH); both paths work end to end (see
+§4, §6).
 
 ---
 
@@ -128,8 +129,19 @@ precise `ValueError`.
 > populated. Run a full `/hunt-score` to get a real Stage 2 cohort, and only then
 > is the ≥80% ROIC coverage criterion meaningfully measurable.
 
-**Phase 3 is absent from this section on purpose.** Signals and monitoring have
-never made a live call — see §6.
+**Phase 3** — live shakedown on AMPH, 2026-07-14, no populated funnel needed
+(`--ticker` runs standalone).
+
+- `signals --ticker AMPH` → live Form 4 + yfinance, 0 fetch failures. MEDIUM
+  (P/FCF 8.0, EV/EBITDA 6.3, 14% of 52w range), buy alert written. AMPH had 0
+  open-market `P` buys; a follow-up run on **BOLD** (16 P buys) and **YEXT** (2 P
+  buys) parsed real buy rows into `insider_events`, confirming that path live — see §6.
+- `monitor check --ticker AMPH` → live XBRL fired `MARGIN_COMPRESSION` (op margin
+  30.6% → 19.5% / 2y, action REVIEW); `write_recent_8k` pulled 5 real 8-Ks (27KB)
+  to disk; monitoring_log + sell alert written.
+- `monitor save` → judged the 8-Ks, merged red flags into today's row idempotently
+  (1 row, notes concatenated), action re-derived REVIEW. Full fetch→judge→save loop
+  confirmed. The judgement surfaced a real vocabulary gap — see §6.
 
 ---
 
@@ -253,12 +265,27 @@ strings are never interpolated into SQL.
 
 ## 6. Known gaps
 
-- **Phase 3 has never made a live call.** Unlike Stages 1–4 (§4), signals and
-  monitoring are verified by **mocked tests only** — no live EDGAR or yfinance run
-  has happened. The Form 4 and 8-K paths are written against edgartools **5.42.0**'s
-  real API surface (`market_trades` returning `None`; `amendments=False`), but that
-  surface has been read, not exercised. This is the most important caveat in the
-  phase: treat the first live `/hunt-signals` and `/hunt-monitor` as a shakedown run.
+- **RED_FLAGS has no code for a regulatory action.** The closed vocabulary is
+  `{AUDITOR_RESIGNATION, GOING_CONCERN, KEY_MAN_DEPARTURE, MATERIAL_IMPAIRMENT,
+  RESTATEMENT, SEC_INVESTIGATION}`. AMPH's 2026-07-02 8-K was an **FDA Warning
+  Letter** (CGMP violations at a subsidiary plant) — for a pharma-heavy small-cap
+  universe arguably the single most important 8-K red flag, and nothing in the
+  vocabulary fits it. The shakedown recorded it in `notes` (correct — never invent a
+  code), but a recurring, material category living only in free-text notes will not
+  raise a HIGH alert. **Resolved 2026-07-14:** regulatory events stay in notes (no
+  new code); the Alerts page now surfaces the latest monitoring note per ticker in a
+  warning box (`4_Alerts.load_monitoring_notes`), so a finding with no red-flag code
+  is still seen.
+- **`cluster()`'s positive branch is still unexercised live** (narrowed
+  2026-07-14). P-row *parsing* is now confirmed live — `signals` on BOLD (16 real P
+  buys, Kevin Tang) and YEXT (2 P buys, 2 insiders) parsed and persisted to
+  `insider_events` with correct shares/price/value, 0 fetch failures. But neither
+  cleared `CLUSTER_MIN_INSIDERS=3`, so a cluster *firing* (a HIGH/MEDIUM buy alert)
+  has still only been seen in unit tests — clusters are rare and hard to force live.
+  The current-filings feed does **not** honour a `form=` filter (it returns all
+  forms; filter on `f.form` yourself), but the production path
+  `Company(t).get_filings(form="4")` is correctly scoped. edgartools **5.42.0**
+  (`market_trades` → `None`; `amendments=False`) otherwise held up.
 - **The `portfolio` table is empty until Phase 4**, so `/hunt-monitor` runs via
   `--ticker` for now, and `portfolio_snapshots` only fill for open positions —
   i.e. not at all yet.
