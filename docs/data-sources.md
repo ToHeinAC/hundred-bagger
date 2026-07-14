@@ -2,7 +2,7 @@
 
 Two external sources, and they are not equals. **SEC EDGAR is a primary source** — it *is* the filing. **yfinance is an unofficial scraper** of a site that never promised us anything. Stage 3 exists partly to cross-check Stage 2 against Stage 3's numbers, and where they disagree, EDGAR wins.
 
-Source of truth: `src/xbrl.py` (EDGAR JSON), `src/moat.py` (EDGAR text), `src/universe.py` + `src/scorer.py` (yfinance). Scoring rules are in [scoring.md](scoring.md); column semantics in [schema.md](schema.md).
+Source of truth: `src/xbrl.py` (EDGAR JSON), `src/filings.py` (EDGAR documents), `src/moat.py` (10-K Item 1), `src/universe.py` + `src/scorer.py` (yfinance). Scoring rules are in [scoring.md](scoring.md); column semantics in [schema.md](schema.md).
 
 ## 1. SEC EDGAR — two surfaces, two libraries
 
@@ -10,12 +10,15 @@ Source of truth: `src/xbrl.py` (EDGAR JSON), `src/moat.py` (EDGAR text), `src/un
 |------|---------|---------|--------|
 | Stage 3 fundamentals | `companyfacts` JSON API | plain `requests` | `src/xbrl.py` |
 | Stage 4 10-K Item 1 text | filing documents | `edgartools` | `src/moat.py` |
+| Phase 3 Form 4 + 8-K | filing documents | `edgartools` | `src/filings.py` |
 
 Both, not one. The XBRL numbers are already structured, so a JSON API and 40 lines of extraction beat a dependency. Filing *text* is the opposite problem — locating and parsing Item 1 out of a 10-K is exactly what edgartools is good at, and reimplementing it would be foolish.
 
+**`src/filings.py` is where edgartools is quarantined.** It is an unofficial client over a government API — both of which change — so the callers (`signals.py`, `monitor.py`) never see an edgartools object, only dicts and file paths. It also owns the shared SEC `identity()` and `throttle()`; `src/moat.py` imports them from here rather than keeping its own copy, so there is exactly one place the rate limit and the user-agent live for the document surface.
+
 ### `SEC_USER_AGENT` is mandatory
 
-The SEC rejects requests without a real contact email in the `User-Agent` header. Both modules **fail loudly when it is unset** (`xbrl._headers` raises `SecError`; `moat._identity` exits) rather than letting every ticker die of a confusing 403.
+The SEC rejects requests without a real contact email in the `User-Agent` header. Both surfaces **fail loudly when it is unset** (`xbrl._headers` raises `SecError`; `filings.identity()` exits with a `SystemExit`) rather than letting every ticker die of a confusing 403.
 
 ```
 SEC_USER_AGENT='Jane Doe jane@example.com'
@@ -26,7 +29,7 @@ SEC_USER_AGENT='Jane Doe jane@example.com'
 Exceeding it gets the user's IP blocked — an outage of the funnel's highest-signal stage, caused by us. So it is structural:
 
 - In `src/xbrl.py`, **every** request funnels through `_get()`, which calls `time.sleep(config.SEC_SLEEP)` *first*. There is no other way out to EDGAR, so the cap cannot be bypassed by a new caller.
-- In `src/moat.py`, `_throttle()` sleeps before each edgartools entry point. Deliberately conservative — edgartools may issue more than one HTTP request per call, and we cannot see inside it.
+- In `src/filings.py`, `throttle()` sleeps before each edgartools entry point — including once per filing inside a loop, because `filing.obj()` and `filing.text()` each pull a document. Deliberately conservative: edgartools may issue more than one HTTP request per call, and we cannot see inside it.
 
 `SEC_SLEEP = 0.11` (≈9 req/s). **This is why a full Stage 3 batch takes 30–60 minutes and cannot be sped up.** Do not "optimise" it.
 
@@ -90,6 +93,43 @@ Also: `revenue_ttm` is filtered on server-side but **not returned**, so `univers
 ### The dashboard's one network call
 
 Every dashboard page opens DuckDB `read_only=True` and otherwise touches nothing external. The single exception is the **Stock Detail** page's 1-year price chart, which calls `yf.Ticker(t).history()` behind a cache and degrades to a caption if yfinance fails. That is the only network call in the whole dashboard, and it should stay that way.
+
+## 5. Form 4 — the insider signal, and its two landmines
+
+`src/filings.insider_transactions(ticker, lookback_days)` → a list of dicts, one per **non-derivative** trade. Consumed by [scoring.md §8](scoring.md#8-entry-signals-phase-3--implemented).
+
+### Only transaction code `P` is a buy
+
+Form 4 codes what the insider did. Three of them are routinely mistaken for conviction:
+
+| Code | What it is | Counts as a buy? |
+|------|-----------|------------------|
+| `P` | **open-market purchase** — the insider spent their own money | **yes** — and only when `AcquiredDisposed == "A"` |
+| `A` | grant / award | no — compensation |
+| `M` | option exercise | no — compensation |
+| anything else | recorded with its raw code | no |
+
+**A grant is not a buy, and an option exercise is not a buy.** Treating either as a signal is the standard way to fool yourself with Form 4 data — it manufactures "insider buying" out of the payroll. `filings._transactions()` therefore requires the code to be `P` *and* the acquired/disposed flag to be `A`: a `P` that disposes is not a purchase whatever the code says. Everything else is stored with its raw code (`"?"` when the filer omitted it) so the history is complete, but only `P` reaches `signals.cluster()`.
+
+### Landmine 1: `Form4.market_trades` returns `None`, not an empty frame
+
+Verified against installed **edgartools 5.42.0**. When a filing has no non-derivative transactions — an options-only Form 4, which is common — `market_trades` is `None`, so a truthiness or `.empty` test on it raises `AttributeError`. It is guarded explicitly.
+
+### Landmine 2: `get_filings(form="4")` includes amendments by default
+
+A 4/A restates an earlier Form 4. Left in, the restated transaction is counted **twice**, which is exactly the direction that manufactures a cluster. `amendments=False` is passed.
+
+One malformed Form 4 must not lose the other twenty, so per-filing parsing is wrapped and skipped on failure. `INSIDER_LOOKBACK_DAYS = 180` bounds the pull.
+
+## 6. 8-K — the red-flag text
+
+`src/filings.write_recent_8k(ticker, out_dir)` concatenates the recent 8-K bodies to `data/monitor_input/{TICKER}.txt` for Claude to read (fetch → judge → save). The vocabulary Claude may return is closed — see [scoring.md §7](scoring.md#7-sell-triggers-phase-3--implemented).
+
+- **`filing.items` comes from SEC metadata and costs no download.** The reported item numbers go in each filing's header block, so **Item 4.02 (non-reliance / restatement) is legible before a word of the body is read.**
+- **`filing.text()` pulls the body** — that is the request the throttle exists for. A filing whose text is unavailable is written as `(text unavailable)` rather than aborting the ticker.
+- `EIGHTK_LOOKBACK_DAYS = 90` — how far back 8-Ks are pulled.
+- `EIGHTK_CHAR_CAP = 20_000` — per-filing truncation. The material fact in an 8-K is at the top; the exhibits are not.
+- **No 8-K at all returns `None`, and that is a normal outcome, not an error.** Most companies file nothing in a given quarter.
 
 ## See also
 

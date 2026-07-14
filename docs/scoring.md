@@ -173,6 +173,111 @@ The middle row is the point: a *perfect* breadth score with fragile durability l
 
 **A moat miss is not an exclusion.** A below-gate ticker keeps its score row, its stage, and its status; nothing is written to `exclusions`. Judgement is not arithmetic, and a moat we could not see is not a moat we proved absent (PRD §2.4).
 
-## 7. Sell triggers (Phase 3) — NOT YET IMPLEMENTED
+## 7. Sell triggers (Phase 3) — implemented
 
-The sell-trigger table that `/hunt-monitor` will evaluate against open positions (mechanical triggers in Python; 8-K red-flag reading by Claude) is not defined in code. `monitoring_log.flags` is the column that will hold the fired codes. The only trigger named so far in the PRD is `ROIC_DETERIORATION`. Nothing further is specified — do not assume a table exists.
+`src/triggers.py` (the arithmetic) + `src/monitor.py` (the I/O) + `.claude/skills/hunt-monitor/SKILL.md` (the 8-K judgement). `triggers.py` is to `monitor.py` what `fundamentals.py` is to `roic.py`: pure functions over the same year-keyed XBRL fact table Stage 3 builds, so the rules can be read and tested without EDGAR. A position is therefore judged against the standard it was admitted on.
+
+### The mechanical table — implemented
+
+Five rules, evaluated independently by `triggers.fired()`. Every firing yields a `(code, detail)` pair; the detail string carries the number that fired it, and lands in `monitoring_log.notes`.
+
+| Code | Trigger | Exact threshold | Constant |
+|------|---------|-----------------|----------|
+| `ROIC_DETERIORATION` | ROIC below the floor for `SELL_TREND_YEARS` **consecutive** years | ROIC < 10% in **both** of the last 2 computable years | `SELL_ROIC_FLOOR = 0.10`, `SELL_TREND_YEARS = 2` |
+| `REVENUE_DECLINE` | Revenue lower than the prior year, `SELL_TREND_YEARS` times running | needs 3 consecutive years; each must be below the one before | `SELL_TREND_YEARS = 2` |
+| `MARGIN_COMPRESSION` | Operating margin (EBIT / revenue) down more than 5pp against two years ago | `then − now > 0.05`, strictly greater | `SELL_MARGIN_DROP = 0.05` |
+| `DILUTION` | Share count up more than 5% year-over-year | `latest / prior − 1 > 0.05`, strictly greater | `SELL_DILUTION_PCT = 0.05` |
+| `DISTRESS_ZONE` | Altman Z back in the bankruptcy zone | `altman_z < 1.8`, strictly less | `ALTMAN_Z_DISTRESS = 1.8` |
+
+`ROIC_DETERIORATION` is the headline: the number the entire funnel selected on has stopped being true. Everything else on the list is corroboration. `DISTRESS_ZONE` reuses the same constant — and the same `fundamentals.altman_z` — as the Stage 3 auto-exclusion in §3, so a position is re-tested against the floor it was admitted over. It needs `universe.market_cap` for the MVE term, **the one input XBRL cannot supply**, so a ticker with no cap yields no trigger rather than a wrong one.
+
+### Two invariants shape every rule
+
+**1. One bad year is not a sell.** Every trend rule needs `SELL_TREND_YEARS` consecutive bad years, or a move too large to be noise. Selling a compounder on one soft year is how you lose the 100-bagger — the funnel exists to find a ten-year hold, and a screen that panics annually cannot deliver one.
+
+**2. A trigger NEVER fires on missing data.** The same invariant as Stages 2–4 (PRD §2.4). Every rule returns `None` when the years it needs are absent: fewer than `SELL_TREND_YEARS` computable ROIC values, fewer than three revenue years, an uncomputable margin, a non-positive prior share count, no assets, no market cap. **An absent XBRL tag is a coverage gap, not a thesis break** — see [data-sources.md §2](data-sources.md#2-xbrl-tag-coverage-is-uneven--and-the-failure-mode-is-silent).
+
+### Red flags — the judgement half
+
+Not in the table above, and deliberately not in Python: a restatement or a going-concern paragraph is not a number, and no regex finds one honestly. Claude Code reads the recent 8-K text that `monitor check` drops in `data/monitor_input/{TICKER}.txt` and returns codes from a **closed vocabulary** (`config.RED_FLAGS`):
+
+| Code | What Claude is looking for |
+|------|---------------------------|
+| `RESTATEMENT` | prior financials declared unreliable (Item 4.02) |
+| `GOING_CONCERN` | substantial doubt about continuing as a going concern |
+| `AUDITOR_RESIGNATION` | the auditor resigned or was dismissed |
+| `SEC_INVESTIGATION` | a formal SEC inquiry or subpoena |
+| `KEY_MAN_DEPARTURE` | the founder/CEO the thesis rests on is leaving |
+| `MATERIAL_IMPAIRMENT` | a write-down large enough to restate the asset base |
+
+**The vocabulary is closed and `monitor.validate()` rejects anything outside it.** An invented code would land in `monitoring_log.flags` and silently never match anything the user greps for, which is worse than a loud `ValueError`.
+
+### The recommendation — `triggers.recommend()`
+
+```
+ACTIONS = ("HOLD", "REVIEW", "TRIM", "SELL")
+```
+
+| Input | → `recommended_action` |
+|---|---|
+| **any** red flag | **`SELL`** — immediately, regardless of the mechanical count |
+| 0 mechanical flags | `HOLD` |
+| 1 mechanical flag | `REVIEW` |
+| 2 mechanical flags | `TRIM` |
+| 3+ mechanical flags | `SELL` |
+
+**A red flag is categorical, not cumulative:** one restatement is a sell however healthy the arithmetic looks. Mechanical triggers accumulate instead, because any one of them in isolation has an innocent explanation and three of them do not.
+
+`monitor check` writes the mechanical verdict (flags as a JSON array, action, notes) to `monitoring_log` and raises a `sell` alert at severity **MEDIUM** per fired trigger. `monitor save` merges Claude's red flags into **today's same row**, re-derives the action, and raises a `red_flag` alert at severity **HIGH**. Saving twice is idempotent — the mechanical codes are re-read from the row, not recomputed. **Saving without a check first raises**: the mechanical triggers are half the verdict. See [schema.md §5](schema.md#5-later-phase-tables).
+
+## 8. Entry signals (Phase 3) — implemented
+
+`src/signals.py` + `.claude/skills/hunt-signals/SKILL.md`. Stages 1–4 answer *what* to buy; this answers *when*, and only for tickers already on Watchlist B (`status = 'watchlist'`). It is **not a score and not a gate** — it changes no ticker's stage or status. It writes `insider_events` and raises `buy` alerts.
+
+### Insider cluster buy — only code `P` counts
+
+| Rule | Exact definition | Constant |
+|------|------------------|----------|
+| What counts as a buy | Form 4 transaction code **`P`** **and** `AcquiredDisposed == "A"` | `OPEN_MARKET_BUY = "P"` |
+| Cluster size | ≥ 3 **distinct people** (not distinct filings) | `CLUSTER_MIN_INSIDERS = 3` |
+| Window | those buys fall inside one rolling 90-day window | `CLUSTER_WINDOW_DAYS = 90` |
+| Aggregate value | ≥ $100,000 summed across the window | `CLUSTER_MIN_VALUE = 100_000` |
+| How far back | 180 days of Form 4s | `INSIDER_LOOKBACK_DAYS = 180` |
+
+**A grant (`A`) or an option exercise (`M`) is compensation, not conviction**, and counting either as a buy signal is the classic way to fool yourself with Form 4 data. A `P` that *disposes* is not a purchase whatever the code says, which is why the acquired/disposed flag is tested too.
+
+**Distinct people, not distinct filings.** One director filing four times in a week is one insider; counting filings would manufacture a cluster out of a single person's conviction.
+
+`signals.cluster()` tries **every buy as a window start**, so a cluster is found wherever it sits in the 180-day lookback rather than only in the most recent 90 days. The strongest qualifying window wins (most insiders, then largest value). Transaction-code and amendment handling is in [data-sources.md §5](data-sources.md#5-form-4--the-insider-signal-and-its-two-landmines).
+
+### Valuation gates — three yes/no tests, not a score
+
+| Gate | Passes when | Constant |
+|------|-------------|----------|
+| P/FCF | `marketCap / freeCashflow` ≤ 20 | `MAX_P_FCF = 20.0` |
+| EV/EBITDA | `enterpriseValue / ebitda` ≤ 15 | `MAX_EV_EBITDA = 15.0` |
+| PEG | `trailingPegRatio` ≤ 2 | `MAX_PEG = 2.0` |
+
+All three come from yfinance (`yf.Ticker(t).info`) and each is independently **pass / fail / unknown**. Two rules:
+
+- **A ratio that cannot be computed is UNKNOWN, never a pass** (PRD §2.4). `None` stays `None` through `signals.gates()`.
+- **A non-positive denominator yields `None`.** A negative P/FCF is not a cheap stock, and a naive division would rank a cash-burning company as the bargain of the year.
+
+`valuation_ok` means **at least one gate was measurable and none of the measurable ones failed.** An all-unknown valuation is not a pass; one failed gate sinks it.
+
+### Price zone
+
+`signals.price_zone()` — position in the 52-week range: **0.0 at the low, 1.0 at the high**. `(price − low) / (high − low)`, `None` when any of the three is missing or the range is degenerate. The buy zone is the lower half: `zone <= BUY_ZONE_MAX = 0.50`.
+
+### The strength matrix
+
+| `signal_strength` | Condition |
+|---|---|
+| **`HIGH`** | cluster buy **AND** `valuation_ok` |
+| **`MEDIUM`** | cluster buy alone, **OR** (`valuation_ok` **AND** in the buy zone) |
+| **`LOW`** | `valuation_ok` alone |
+| `None` | nothing measurable passed |
+
+**The cluster buy is what separates `HIGH` from the rest. Cheapness alone can never earn a `HIGH` — price is not a catalyst.**
+
+**Alerts are raised for `HIGH` and `MEDIUM` only.** `LOW` is deliberately silent: it means "nothing broke", and alerting on that trains the user to ignore the feed — which is the only way this feature fails. Alerts dedupe on `ticker + type + message` within a day (`db.add_alert`), so a re-run does not resurrect an alert the user already acknowledged.

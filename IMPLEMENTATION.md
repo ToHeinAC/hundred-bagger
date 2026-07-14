@@ -4,8 +4,10 @@ Current state of the build. Purpose and scope live in [PRD.md](PRD.md); componen
 detail lives in [docs/](docs/). This file is the map, not the territory — keep it
 under 500 lines and push detail down.
 
-**Phases 1 and 2 of 4 are complete.** Universe → quant scoring → ROIC → moat →
-dashboard runs end to end against live data. The funnel now produces Watchlist B.
+**Phases 1, 2 and 3 of 4 are complete.** Universe → quant scoring → ROIC → moat →
+dashboard runs end to end against live data and produces Watchlist B. Phase 3 adds
+entry signals and position monitoring on top of it — **verified by mocked tests
+only, never yet run against live EDGAR** (see §6).
 
 ---
 
@@ -18,17 +20,24 @@ dashboard runs end to end against live data. The funnel now produces Watchlist B
 | DB access (only SQL surface) | `src/db.py` | Done |
 | Stage 1 universe | `src/universe.py` | Done |
 | Stage 2 quant scoring | `src/scorer.py` | Done |
-| SEC EDGAR client | `src/xbrl.py` | Done — **the one place the rate limit lives** |
+| SEC EDGAR XBRL client | `src/xbrl.py` | Done — companyfacts JSON; rate limit enforced |
 | Stage 3 ROIC + avoidance | `src/roic.py` | Done |
 | Stage 4 moat (fetch/save) | `src/moat.py` | Done — judgement is Claude's |
-| Dashboard | `src/app.py`, `src/pages/` | Done — Pipeline, Watchlist, Stock Detail |
-| Skills | `.claude/skills/hunt-{universe,score,roic,moat,status}/` | Done |
-| Tests | `tests/` | Done — 110, network mocked, green offline |
-| Signals / monitoring | `src/signals.py`, `src/monitor.py` | **Not started** (Phase 3) |
+| EDGAR documents (Form 4, 8-K) | `src/filings.py` | Done — **edgartools is quarantined here**; owns SEC identity + throttle |
+| Entry signals (Watchlist B) | `src/signals.py` | Done — cluster buys, valuation gates, price zone |
+| Sell-trigger table | `src/triggers.py` | Done — pure functions, no I/O |
+| Position monitoring (check/save) | `src/monitor.py` | Done — judgement is Claude's |
+| Dashboard | `src/app.py`, `src/pages/` | Done — Pipeline, Watchlist, Stock Detail, Alerts |
+| Skills | `.claude/skills/hunt-{universe,score,roic,moat,signals,monitor,status}/` | Done |
+| Tests | `tests/` | Done — 170, network mocked, green offline |
 | Portfolio | `src/portfolio.py` | **Not started** (Phase 4) |
 
 `total_score` (0–34) is now actually reachable: `quant_score` (0–14) +
 `roic_score` (0–10) + `moat_score` (0–10).
+
+Entry signals and sell triggers are **not** part of that score — they change no
+ticker's `stage` or `status`. They write `insider_events`, `monitoring_log` and
+`alerts`, and the Alerts page is where they surface.
 
 ---
 
@@ -44,11 +53,16 @@ uv run python -m src.db --init
 /hunt-score       # ~15-30 min
 /hunt-roic        # ~30-60 min   (EDGAR rate cap; cannot be sped up)
 /hunt-moat        # ~10-30 min   (you read the 10-Ks)
+/hunt-signals     # ~2-5 min     (watchlist entry signals)
+/hunt-monitor     # ~5-15 min    (you read the 8-Ks)
 /hunt-status
 
 uv run streamlit run src/app.py --server.port 8501
 uv run pytest
 ```
+
+`/hunt-signals` runs over Watchlist B; `/hunt-monitor` runs over open positions,
+and until Phase 4 fills the `portfolio` table it is invoked with `--ticker`.
 
 ---
 
@@ -63,11 +77,19 @@ uv run python -m src.scorer   --batch [--limit N] | --ticker XYZ
 uv run python -m src.roic     --batch [--limit N] | --ticker XYZ
 uv run python -m src.moat     fetch [--stage 3] [--limit N] [--force]
 uv run python -m src.moat     save --ticker XYZ (--json '{...}' | --json-file PATH)
+uv run python -m src.signals  --check [--ticker XYZ]
+uv run python -m src.monitor  check [--ticker XYZ]
+uv run python -m src.monitor  save --ticker XYZ (--json '{...}' | --json-file PATH)
 uv run python -m src.db       --init | --status
 ```
 
-Phases 3–4 extend this with `src.signals`, `src.monitor`, and `src.portfolio` —
-see [PRD.md](PRD.md) §10.
+`src.monitor` follows `src.moat`'s two-verb shape because it is the same fetch →
+judge → save pattern: `check` computes the mechanical triggers and drops recent
+8-K text in `data/monitor_input/`; `save` merges Claude's red flags into **today's
+same log row** and re-derives the action. **`save` without a `check` first raises**
+— the mechanical triggers are half the verdict.
+
+Phase 4 extends this with `src.portfolio` — see [PRD.md](PRD.md) §10.
 
 ---
 
@@ -105,6 +127,9 @@ precise `ValueError`.
 > correspondingly tiny. The *pipeline* is verified; the *funnel* is not yet
 > populated. Run a full `/hunt-score` to get a real Stage 2 cohort, and only then
 > is the ≥80% ROIC coverage criterion meaningfully measurable.
+
+**Phase 3 is absent from this section on purpose.** Signals and monitoring have
+never made a live call — see §6.
 
 ---
 
@@ -180,6 +205,31 @@ Clearing the moat gate promotes to Stage 4 **and** sets `status='watchlist'` —
 Stage 4 survivors *are* Watchlist B, the funnel's output. A moat miss records the
 score but is **not** an exclusion.
 
+### A sell trigger never fires on one bad year — or on missing data
+
+The two rules that shape the whole sell-trigger table (`src/triggers.py`). Every
+trend rule needs `SELL_TREND_YEARS = 2` consecutive bad years, or a move too large
+to be noise: **selling a compounder on one soft year is how you lose the
+100-bagger.** And a trigger returns `None` rather than firing when the years it
+needs are absent — an absent XBRL tag is a coverage gap, not a thesis break, the
+same invariant as Stages 2–4. Full table in
+[docs/scoring.md §7](docs/scoring.md#7-sell-triggers-phase-3--implemented).
+
+Red flags are the opposite kind of thing and are handled the opposite way: **any
+one of them is an immediate `SELL`**, categorical rather than cumulative. They come
+from Claude reading 8-K text, and the vocabulary is closed — `monitor.validate()`
+rejects an invented code, because it would land in `monitoring_log.flags` and
+silently never match anything the user greps for.
+
+### The Alerts page is the dashboard's one write
+
+PRD §6 says the dashboard is read-only except the Portfolio page. Acknowledging an
+alert is a deliberate, narrow deviation: the user is the **author** of the fact
+("I have seen this"), it is not screening state, and no skill can produce it. The
+write is one `UPDATE` on one column (`db.acknowledge_alerts`), with a read-write
+handle that does not outlive the call. Nothing else on the page can reach the
+database with a write handle.
+
 ### `scorer.band` is shared
 
 Renamed from `_band` in Phase 2 so `roic.py` could reuse the same first-band-wins
@@ -203,6 +253,28 @@ strings are never interpolated into SQL.
 
 ## 6. Known gaps
 
+- **Phase 3 has never made a live call.** Unlike Stages 1–4 (§4), signals and
+  monitoring are verified by **mocked tests only** — no live EDGAR or yfinance run
+  has happened. The Form 4 and 8-K paths are written against edgartools **5.42.0**'s
+  real API surface (`market_trades` returning `None`; `amendments=False`), but that
+  surface has been read, not exercised. This is the most important caveat in the
+  phase: treat the first live `/hunt-signals` and `/hunt-monitor` as a shakedown run.
+- **The `portfolio` table is empty until Phase 4**, so `/hunt-monitor` runs via
+  `--ticker` for now, and `portfolio_snapshots` only fill for open positions —
+  i.e. not at all yet.
+- **Alert dedupe is per-day.** `db.add_alert` collapses the same
+  `ticker + type + message` within one day, so a re-run cannot resurrect an alert
+  the user acknowledged. The *same* alert raised on a **later** day is a new row —
+  by design (a cluster buy still live next month is news again), but it means a
+  long-running unacknowledged condition recurs in the feed.
+- **`src/db.py` is 407 lines**, over the PRD's ~200-line-per-file bar. Kept whole
+  deliberately: **"db.py is the only SQL surface" is the invariant that makes the
+  schema safe to evolve**, and splitting the file to satisfy a line count would
+  trade a real guarantee for a cosmetic one. The tradeoff is the file's size; the
+  alternative was two files that each half-own the schema.
+- **The test suite is at 170 of the 200-test budget**, leaving ~30 for Phase 4's
+  portfolio work. Merging or dropping tests may be needed rather than growing past
+  the cap.
 - **The funnel is not populated** — see the note in §4. Stage 2 was only ever run
   over a 40-ticker sample.
 - **ROIC coverage is unmeasured in practice.** The ≥80% success criterion needs a
@@ -233,13 +305,13 @@ strings are never interpolated into SQL.
 
 ---
 
-## 7. Next: Phase 3
+## 7. Next: Phase 4
 
-Entry signals (`src/signals.py` — Form 4 cluster buys, valuation gates) and
-position monitoring (`src/monitor.py` — the sell-trigger table, 8-K red-flag
-reading by Claude). `/hunt-monitor` is the second judgement-bearing skill and
-reuses the fetch → judge → save pattern that Phase 2 established. The
-sell-trigger table does not exist yet in code — see [docs/scoring.md](docs/scoring.md) §7.
+Portfolio: `src/portfolio.py`, the `/hunt-portfolio` skill (including position
+sizing / `suggest`), and the Portfolio dashboard page — the second dashboard write
+path, and the one PRD §6 always allowed. `docs/dashboard.md` is still unwritten and
+belongs with it. Filling the `portfolio` table is what turns `/hunt-monitor` from a
+`--ticker` tool into the batch it was designed as.
 
 ---
 

@@ -146,11 +146,11 @@ Note the asymmetry: `db.add_exclusion()` sets `universe.status = 'excluded'`, bu
 
 Ship empty in Phase 1. Column semantics are documented here only where they are not self-evident from the DDL.
 
-**`insider_events`** (Phase 3, `/hunt-signals`) — one row per Form 4 transaction. `is_cluster_buy` marks a purchase that is part of a multi-insider cluster within a window; `signal_strength` grades the cluster. Append-only, no natural key: the same filing re-fetched will insert again unless the caller dedupes.
+**`insider_events`** (Phase 3, `/hunt-signals`) — one row per Form 4 transaction. `is_cluster_buy` marks a purchase inside the winning cluster window; `signal_strength` grades the ticker's overall signal. The surrogate key is not a natural one, so `db.replace_insider_events` **deletes the ticker's rows before inserting**: re-running `/hunt-signals` restates a ticker's Form 4 history rather than appending a second copy of it.
 
-**`alerts`** (Phase 3) — `alert_type` ∈ `buy` \| `sell` \| `red_flag`; `severity` ∈ `HIGH` \| `MEDIUM` \| `LOW`; `acknowledged` is cleared by the dashboard's acknowledge flow and is the basis of `status_summary()["unacked_alerts"]`.
+**`alerts`** (Phase 3) — `alert_type` ∈ `buy` \| `sell` \| `red_flag`; `severity` ∈ `HIGH` \| `MEDIUM` \| `LOW`; `acknowledged` is set by the dashboard's acknowledge flow (the **one write path the UI has**) and is the basis of `status_summary()["unacked_alerts"]`. `db.add_alert` dedupes on `(ticker, alert_type, message, created_date)` — the same alert raised twice in one day is one row, so re-running a skill cannot resurrect something the user already acknowledged. The dedupe is **per day**: the same alert on a later date is a new row, by design.
 
-**`monitoring_log`** (Phase 3, `/hunt-monitor`) — one row per position per check. `flags` is a **JSON array of sell-trigger codes** stored as text (not a comma-separated list — unlike `scores.data_warnings`). `recommended_action` ∈ `HOLD` \| `TRIM` \| `SELL` \| `REVIEW`. `max(check_date)` is the monitoring-freshness signal.
+**`monitoring_log`** (Phase 3, `/hunt-monitor`) — one row per ticker per `check_date`; re-checking overwrites it. `flags` is a **JSON array of sell-trigger codes** stored as text (not a comma-separated list — unlike `scores.data_warnings`), so a code can never be confused with a substring of another. It holds mechanical trigger codes and Claude's 8-K red-flag codes in the same array. `recommended_action` ∈ `HOLD` \| `TRIM` \| `SELL` \| `REVIEW`, derived in Python (`triggers.recommend`). `max(check_date)` is the monitoring-freshness signal.
 
 **`portfolio`** (Phase 4) — one row per position, `status` ∈ `open` \| `closed`. `entry_roic` is snapshotted at entry so that thesis drift (entry ROIC vs current ROIC) is measurable without reconstructing history. `realized_return_pct` is written on close.
 

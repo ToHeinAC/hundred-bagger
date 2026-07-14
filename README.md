@@ -40,6 +40,8 @@ In Claude Code, invoke the skills:
 | `/hunt-score` | Stage 2 — score 0–14 on fundamentals, auto-exclude | 15–30 min |
 | `/hunt-roic` | Stage 3 — ROIC, Piotroski F, Altman Z from SEC XBRL | 30–60 min |
 | `/hunt-moat` | Stage 4 — *you* read each 10-K Item 1 and score the moat | 10–30 min |
+| `/hunt-signals` | Entry signals — insider cluster buys, valuation gates, price zone | 2–5 min |
+| `/hunt-monitor` | Sell triggers on open positions; *you* read the 8-Ks for red flags | 5–15 min |
 | `/hunt-status` | Pipeline summary and data freshness (no network) | < 1 min |
 
 A full cycle is `/hunt-universe` → `/hunt-score` → `/hunt-roic` → `/hunt-moat`,
@@ -47,11 +49,19 @@ which takes you from roughly 8,000 US listings to **Watchlist B**: the 20–50 n
 that cleared every gate. `/hunt-status` tells you where you are and what to run
 next.
 
-`/hunt-moat` is the one stage where Claude Code is the reasoning engine rather
-than a wrapper around a script. Python fetches the Item 1 text to disk, Claude
-reads it and scores it against a rubric that lives in the skill, and Python
-validates the JSON back into the database — the **fetch → judge → save** pattern.
-That is what makes the LLM-free app possible.
+The funnel answers *what* to buy. `/hunt-signals` answers *when* — it checks
+Watchlist B for insider cluster buys (only open-market purchases count; a grant is
+not conviction), three yes/no valuation gates, and where the price sits in its
+52-week range, then raises buy alerts. `/hunt-monitor` asks the other question:
+*has the thesis broken?* — five mechanical sell triggers computed from SEC XBRL,
+plus red flags Claude reads out of recent 8-Ks. Neither changes a ticker's score or
+status; both surface on the Alerts page.
+
+`/hunt-moat` and `/hunt-monitor` are the stages where Claude Code is the reasoning
+engine rather than a wrapper around a script. Python fetches the filing text to
+disk, Claude reads it and judges it against a rubric that lives in the skill, and
+Python validates the JSON back into the database — the **fetch → judge → save**
+pattern. That is what makes the LLM-free app possible.
 
 Then open the dashboard:
 
@@ -60,10 +70,11 @@ uv run streamlit run src/app.py --server.port 8501
 ```
 
 Pipeline Overview (funnel + exclusion breakdown), Watchlist (ranked, filterable),
-and Stock Detail (price chart, every metric grouped by stage, moat notes, risks —
-enough to answer "why is this on my watchlist?" without re-running anything). It
-opens the database **read-only** and carries a safe exit button that terminates
-only its own process.
+Stock Detail (price chart, every metric grouped by stage, moat notes, risks —
+enough to answer "why is this on my watchlist?" without re-running anything), and
+Alerts (buy signals, sell triggers, red flags, with an acknowledge flow). It opens
+the database **read-only** everywhere except the one acknowledge write, and carries
+a safe exit button that terminates only its own process.
 
 Every module is also a CLI, which is exactly what the skills shell out to:
 
@@ -73,21 +84,27 @@ uv run python -m src.scorer   --batch [--limit N]
 uv run python -m src.roic     --batch [--limit N]
 uv run python -m src.moat     fetch --stage 3
 uv run python -m src.moat     save --ticker XYZ --json-file moat.json
+uv run python -m src.signals  --check
+uv run python -m src.monitor  check --ticker XYZ
+uv run python -m src.monitor  save  --ticker XYZ --json-file flags.json
 uv run python -m src.db       --status
 ```
 
 ## Status
 
-**Phases 1 and 2 of 4 are implemented** — the funnel now runs end to end and
-produces Watchlist B. The full 9-table schema shipped in Phase 1, so no stage ever
-migrates.
+**Phases 1, 2 and 3 of 4 are implemented.** The funnel runs end to end and produces
+Watchlist B; entry signals and position monitoring sit on top of it. The full
+9-table schema shipped in Phase 1, so no stage ever migrates.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Universe, quant scoring (0–14), status, dashboard | **Done** |
 | 2 | ROIC from SEC XBRL (0–10), moat scoring by Claude (0–10), Stock Detail | **Done** |
-| 3 | Entry signals, position monitoring | Not started |
+| 3 | Entry signals, sell triggers, 8-K red flags, Alerts page | **Done** — but never yet run against live EDGAR; mocked tests only |
 | 4 | Portfolio recommendations | Not started |
+
+The `portfolio` table stays empty until Phase 4, so `/hunt-monitor` currently runs
+one ticker at a time via `--ticker` rather than over open positions.
 
 `SEC_USER_AGENT` is **mandatory** from Phase 2 on: the SEC rejects requests
 without a contact email. EDGAR's 10 req/s cap is enforced in code, which is why
