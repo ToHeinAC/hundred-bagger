@@ -1,6 +1,6 @@
 ---
 name: hunt-moat
-description: Stage 4 — read each Stage 3 survivor's 10-K Item 1 (Business) and score its moat 0–18 across six dimensions plus durability 0–5, then persist the judgement. This is the one stage where you are the reasoning engine, not a wrapper around a script. Use after /hunt-roic, or when the user wants to (re)judge moats. Runs 10–30 min.
+description: Stage 4 — read each Stage 3 survivor's Business section (Item 1 of a 10-K, or Item 4 of a 20-F for ADRs) and score its moat 0–18 across six dimensions plus durability 0–5, then persist the judgement. This is the one stage where you are the reasoning engine, not a wrapper around a script. Use after /hunt-roic, or when the user wants to (re)judge moats. Runs 10–30 min.
 ---
 
 # hunt-moat — Stage 4 moat scoring
@@ -16,9 +16,10 @@ it exists. Apply it literally.
 uv run python -m src.moat fetch --stage 3
 ```
 
-Writes one `data/moat_input/{TICKER}.txt` per active Stage 3 ticker — the 10-K
-Item 1 (Business) section, with a header giving the company, filing date and
-accession. Already-fetched tickers are skipped (`--force` to re-pull). Requires
+Writes one `data/moat_input/{TICKER}.txt` per active Stage 3 ticker — the Business
+section (Item 1 of a 10-K, or Item 4 of a 20-F for a foreign private issuer /
+ADR), with a header giving the company, form, filing date and accession.
+Already-fetched tickers are skipped (`--force` to re-pull). Requires
 `SEC_USER_AGENT` in `.env`; it fails loudly without one.
 
 ## 2. Judge
@@ -28,7 +29,7 @@ save as you go — do not read forty files and then try to score them from memor
 
 ### The posture: be skeptical
 
-**Item 1 is a marketing document.** The company wrote it, its lawyers cleaned it,
+**The Business section is a marketing document.** The company wrote it, its lawyers cleaned it,
 and every filer on earth claims a "leading position in an attractive market."
 Claims are not evidence.
 
@@ -37,7 +38,7 @@ Claims are not evidence.
   share, a real patent estate, actual customer counts.
 - Adjectives are worth nothing. "Strong brand," "sticky customers," "significant
   barriers to entry" score 0 unless the filing shows *why*.
-- Absence of evidence is a 0, not a 1. If Item 1 does not discuss a dimension at
+- Absence of evidence is a 0, not a 1. If the Business section does not discuss a dimension at
   all, that dimension scores 0. Do not award a point for the benefit of the doubt.
 - Score what the company *has*, not what it plans. Roadmaps are not moats.
 

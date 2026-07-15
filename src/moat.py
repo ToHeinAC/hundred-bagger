@@ -1,8 +1,9 @@
 """Stage 4 — moat scoring: the two Python halves of fetch → judge → save.
 
 Claude Code is the judge. The rubric lives in `.claude/skills/hunt-moat/SKILL.md`
-and deliberately nowhere else — this module never sees a prompt. It puts 10-K
-Item 1 text on disk (`fetch`) and validates the JSON that comes back (`save`).
+and deliberately nowhere else — this module never sees a prompt. It puts the
+annual-report Business narrative on disk (`fetch`) and validates the JSON that
+comes back (`save`).
 
 Python owns the arithmetic: Claude supplies the six dimension scores, `moat_total`
 is summed here and `moat_score` derived here. A moat miss is not an exclusion —
@@ -30,13 +31,16 @@ ITEM1_CHAR_CAP = 40_000
 
 
 def _header(ticker: str, filing, truncated: int | None) -> str:
+    # A 10-K carries the Business narrative in Item 1; a 20-F (every foreign
+    # private issuer, US-listed ADRs included) carries it in Item 4.
+    item = "4 (Information on the Company)" if filing.form == "20-F" else "1 (Business)"
     lines = [
         f"# ticker:       {ticker}",
         f"# company:      {filing.company}",
         f"# form:         {filing.form}",
         f"# filing_date:  {filing.filing_date}",
         f"# accession:    {filing.accession_no}",
-        "# item:         1 (Business)",
+        f"# item:         {item}",
     ]
     if truncated:
         lines.append(f"# TRUNCATED:    first {ITEM1_CHAR_CAP:,} of {truncated:,} chars")
@@ -44,17 +48,23 @@ def _header(ticker: str, filing, truncated: int | None) -> str:
 
 
 def fetch_ticker(ticker: str, out_dir: Path) -> Path:
-    """Write one ticker's 10-K Item 1 to {out_dir}/{TICKER}.txt."""
+    """Write one ticker's annual-report Business section to {out_dir}/{TICKER}.txt.
+
+    US filers file a 10-K (Item 1, Business); foreign private issuers — every
+    US-listed ADR among them — file a 20-F (Item 4, Information on the Company).
+    Same qualitative narrative, and edgar exposes both as `.business`, so take
+    whichever the company files.
+    """
     _throttle()
-    filings = Company(ticker).get_filings(form="10-K")
+    filings = Company(ticker).get_filings(form=["10-K", "20-F"])
     filing = filings.latest()
     if filing is None:
-        raise ValueError("no 10-K on file")
+        raise ValueError("no 10-K or 20-F on file")
 
     _throttle()
     text = (filing.obj().business or "").strip()
     if not text:
-        raise ValueError("10-K Item 1 (Business) is empty")
+        raise ValueError(f"{filing.form} Business section is empty")
 
     full_len = len(text)
     truncated = full_len if full_len > ITEM1_CHAR_CAP else None

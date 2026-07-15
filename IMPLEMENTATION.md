@@ -30,7 +30,7 @@ entry signals and position monitoring on top of it — **live shakedown done
 | Position monitoring (check/save) | `src/monitor.py` | Done — judgement is Claude's |
 | Dashboard | `src/app.py`, `src/pages/` | Done — Pipeline, Watchlist, Stock Detail, Alerts |
 | Skills | `.claude/skills/hunt-{universe,score,roic,moat,signals,monitor,status}/` | Done |
-| Tests | `tests/` | Done — 170, network mocked, green offline |
+| Tests | `tests/` | Done — 177, network mocked, green offline |
 | Portfolio | `src/portfolio.py` | **Not started** (Phase 4) |
 
 `total_score` (0–34) is now actually reachable: `quant_score` (0–14) +
@@ -53,7 +53,7 @@ uv run python -m src.db --init
 /hunt-universe    # ~5-10 min
 /hunt-score       # ~15-30 min
 /hunt-roic        # ~30-60 min   (EDGAR rate cap; cannot be sped up)
-/hunt-moat        # ~10-30 min   (you read the 10-Ks)
+/hunt-moat        # ~10-30 min   (you read the 10-Ks / 20-Fs)
 /hunt-signals     # ~2-5 min     (watchlist entry signals)
 /hunt-monitor     # ~5-15 min    (you read the 8-Ks)
 /hunt-status
@@ -113,8 +113,10 @@ after OTC filter       985     (−42)
 `EEX` 4/14 + `CHRONIC_DILUTER` → excluded, reversibly.
 
 **Stage 3** — `AMPH` scores 6/10 on a 14.5% median ROIC from live EDGAR XBRL and
-advances. `AHMA` flags `XBRL_INCOMPLETE` and is **left in the funnel**, not
-excluded (it is a 20-F foreign filer — see §5).
+advances. **ADRs now flow through too** (see §5): `GRVY` (Korea, IFRS in KRW)
+scores 6/10 on a 44.9% median ROIC and clears the gate; `DAO` (China, CNY) and
+`API` (China, USD) extract cleanly and score on merit — all computed live against
+real EDGAR XBRL, none flagged `XBRL_INCOMPLETE`, and `AAPL` unchanged at 10/10.
 
 **Stage 4** — the fetch → judge → save round-trip works end to end: `moat fetch`
 pulled AMPH's real Item 1 (10-K filed 2026-02-26, 122K chars, truncated to 40K)
@@ -174,10 +176,41 @@ Do not read it as one signal:
 
 1. **Genuinely non-standard tags** — small filers use them; this is the accepted
    gap the 80% coverage criterion exists for.
-2. **Out-of-scope filers.** Foreign private issuers file **20-F**, not 10-K.
-   `xbrl.ANNUAL_FORMS` is `{10-K, 10-K/A}`, so a 20-F filer yields no facts at
-   all. AHMA is one, and it slipped past the Stage 1 region filter. Flagging (not
-   excluding) is correct — non-US issuers are out of scope per PRD §4.
+2. **A metric with no series in the reporting currency.** Rare: a foreign filer
+   that publishes only a partial USD *convenience* translation for a given tag can
+   leave that metric empty once values are pinned to one currency (see §5). Still
+   a coverage gap — flagged, not excluded.
+
+Until 2026-07 there was a third cause — *the foreign filer itself*: 20-F XBRL is
+tagged under form `20-F`, which the old `{10-K, 10-K/A}` filter dropped whole, so
+every ADR flagged `XBRL_INCOMPLETE`. That is now read (§5), and ADRs are in scope.
+
+### Foreign issuers and ADRs — 20-F, IFRS, and currency
+
+US-listed ADRs pass the Stage 1 `region="us"` filter already (Yahoo lists them on
+NYSE/Nasdaq), so the funnel always *let them in* — it just could not *process*
+them. Three places assumed a domestic 10-K filer; all three now handle the foreign
+private issuer:
+
+- **Stage 3 (`xbrl.py`).** `ANNUAL_FORMS` now includes `20-F`/`20-F/A`; `annual()`
+  searches both the `us-gaap` and `ifrs-full` taxonomies; and every monetary value
+  is pinned to the company's **reporting currency** (`reporting_currency()`), not
+  USD. A foreign filer reports its full history in its functional currency (KRW,
+  CNY, …) and adds USD only as a partial *convenience* translation — pinning keeps
+  ROIC's numerator and denominator in one unit, so the ratio is currency-free.
+- **Stage 4 (`moat.py`).** Fetches `10-K` **or** `20-F`; the Business narrative is
+  Item 1 in a 10-K and Item 4 in a 20-F, and edgartools exposes both as `.business`.
+- **Signals (`signals.py`).** Foreign private issuers are exempt from Section 16,
+  so they file no Form 4. An empty insider result for one is labelled *"insider
+  data N/A (foreign issuer)"* so it is never read as "no insider bought".
+
+**This is a deliberate widening past PRD §4**, which scoped non-US issuers out; the
+PRD records the original intent, ADRs with EDGAR coverage are now in scope.
+**IFRS debt tags are best-effort** — IFRS borrowings tagging is inconsistent, and
+an absent debt tag reads as zero in `fundamentals.roic` (the same convention a
+domestic filer gets), so a levered IFRS filer can score slightly generously on
+invested capital. Flagged here, not silently accepted. Detail in
+[docs/data-sources.md §6](docs/data-sources.md#6-foreign-private-issuers--20-f-ifrs-and-currency).
 
 ### NULL vs zero on a subscore
 
@@ -300,7 +333,7 @@ strings are never interpolated into SQL.
   schema safe to evolve**, and splitting the file to satisfy a line count would
   trade a real guarantee for a cosmetic one. The tradeoff is the file's size; the
   alternative was two files that each half-own the schema.
-- **The test suite is at 170 of the 200-test budget**, leaving ~30 for Phase 4's
+- **The test suite is at 177 of the 200-test budget**, leaving ~23 for Phase 4's
   portfolio work. Merging or dropping tests may be needed rather than growing past
   the cap.
 - **The funnel is not populated** — see the note in §4. Stage 2 was only ever run

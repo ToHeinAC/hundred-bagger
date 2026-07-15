@@ -71,6 +71,38 @@ def test_annual_returns_empty_when_no_tag_in_the_chain_reports():
     assert xbrl.annual(_facts(), xbrl.EBIT) == {}
 
 
+def test_annual_reads_ifrs_tags_in_a_foreign_currency_from_a_20f():
+    """A Korean ADR: IFRS tag, KRW unit, 20-F form — the domestic path in disguise."""
+    facts = {"facts": {"ifrs-full": {"Revenue": {"units": {"KRW": [
+        _fact(400.0, "2023-12-31", form="20-F"),
+        _fact(500.0, "2024-12-31", form="20-F"),
+    ]}}}}}
+    assert xbrl.annual(facts, xbrl.REVENUE, currency="KRW") == {2023: 400.0, 2024: 500.0}
+
+
+def test_annual_pinned_to_functional_currency_ignores_a_shorter_usd_overlay():
+    """The USD convenience translation covers only the latest year; KRW is complete."""
+    facts = {"facts": {"us-gaap": {"Assets": {"units": {
+        "KRW": [_fact(10.0, "2023-12-31", form="20-F"), _fact(11.0, "2024-12-31", form="20-F")],
+        "USD": [_fact(99.0, "2024-12-31", form="20-F")],
+    }}}}}
+    assert xbrl.annual(facts, xbrl.ASSETS, currency="KRW") == {2023: 10.0, 2024: 11.0}
+
+
+def test_reporting_currency_prefers_the_functional_currency_over_usd_convenience():
+    facts = {"facts": {"us-gaap": {
+        "Revenues": {"units": {
+            "CNY": [_fact(1.0, "2023-12-31", form="20-F"), _fact(2.0, "2024-12-31", form="20-F")],
+            "USD": [_fact(9.0, "2024-12-31", form="20-F")],  # latest year only
+        }},
+    }}}
+    assert xbrl.reporting_currency(facts) == "CNY"
+
+
+def test_reporting_currency_defaults_to_usd_for_a_domestic_filer():
+    assert xbrl.reporting_currency(_facts(Revenues=[_fact(100.0, "2023-12-31")])) == "USD"
+
+
 def test_missing_sec_user_agent_fails_loudly(monkeypatch):
     monkeypatch.setattr(config, "SEC_USER_AGENT", "")
     with pytest.raises(xbrl.SecError, match="SEC_USER_AGENT"):

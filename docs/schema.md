@@ -122,7 +122,7 @@ Written by Claude Code via the fetch→judge→save pattern. Claude supplies the
 | `moat_durability` | 0–5. How long the moat is expected to hold. |
 | `founder_led` | BOOLEAN. |
 | `reinvest_runway` | `narrow` \| `medium` \| `wide`. |
-| `moat_notes`, `key_risks` | Free text from Claude's reading of 10-K Item 1. |
+| `moat_notes`, `key_risks` | Free text from Claude's reading of the Business section (10-K Item 1 / 20-F Item 4). |
 | `moat_score` | 0–10, **derived**: `round(6 × moat_total/18 + 4 × moat_durability/5)` (`config.moat_score()`). This is the value that feeds `total_score`; `moat_total` (0–18) does not. Durability carries 40% — a wide but eroding moat is worth less over a ten-year hold than a narrow durable one. See [scoring.md §6](scoring.md). |
 
 ## 4. `exclusions`

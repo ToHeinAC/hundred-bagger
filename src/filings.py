@@ -93,6 +93,17 @@ def _transactions(form4, filed_date) -> list[dict]:
     return rows
 
 
+def is_foreign_issuer(ticker: str) -> bool:
+    """True for a foreign private issuer (files 20-F/40-F, not 10-K).
+
+    Such issuers are exempt from Section 16, so they never file Form 4. An empty
+    insider result for one of them means "no insider data exists", not "no
+    insider bought" — the caller must not conflate the two. `is_foreign` comes
+    from the submissions metadata the Company object already carries."""
+    throttle()
+    return bool(Company(ticker).is_foreign)
+
+
 def insider_transactions(ticker: str, lookback_days: int) -> list[dict]:
     """Every non-derivative Form 4 trade for a ticker in the lookback window.
 

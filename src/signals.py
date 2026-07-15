@@ -128,7 +128,7 @@ def strength(has_cluster: bool, gate_results: dict, zone: float | None) -> str |
     return None
 
 
-def message(c: dict | None, v: dict, zone: float | None) -> str:
+def message(c: dict | None, v: dict, zone: float | None, foreign_no_form4: bool = False) -> str:
     parts = []
     if c:
         parts.append(
@@ -140,6 +140,8 @@ def message(c: dict | None, v: dict, zone: float | None) -> str:
         parts.append(f"EV/EBITDA {v['ev_ebitda']:.1f}")
     if zone is not None:
         parts.append(f"{zone:.0%} of 52w range")
+    if foreign_no_form4:
+        parts.append("insider data N/A (foreign issuer, no Form 4)")
     return " + ".join(parts) or "no measurable signal"
 
 
@@ -153,6 +155,10 @@ def check_ticker(con, ticker: str) -> dict:
         if e["transaction_type"] == OPEN_MARKET_BUY
     ]
     c = cluster(buys)
+    # Foreign private issuers file no Form 4, so an empty `buys` for one is
+    # "no insider data", not "no insider buying". Only resolved in that ambiguous
+    # case — any actual buy already proves the issuer files Form 4.
+    foreign_no_form4 = not buys and filings.is_foreign_issuer(ticker)
 
     info = yf.Ticker(ticker).info or {}
     v = valuation(info)
@@ -169,13 +175,14 @@ def check_ticker(con, ticker: str) -> dict:
         for b in buys
     ])
 
-    text = message(c, v, zone)
+    text = message(c, v, zone, foreign_no_form4)
     # LOW is "nothing broke", not news. Alerting on it would train the user to
     # ignore the alert feed, which is the only way this feature fails.
     alerted = level in ("HIGH", "MEDIUM") and db.add_alert(con, ticker, "buy", level, text)
     return {
         "ticker": ticker, "strength": level, "message": text, "alerted": alerted,
         "buys": len(buys), "cluster": c is not None, "gates": gate_results, "zone": zone,
+        "foreign_no_form4": foreign_no_form4,
     }
 
 

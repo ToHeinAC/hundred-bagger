@@ -163,8 +163,9 @@ def cheap_info() -> dict:
     }
 
 
-def _patch(monkeypatch, transactions: list[dict], info: dict) -> None:
+def _patch(monkeypatch, transactions: list[dict], info: dict, foreign: bool = False) -> None:
     monkeypatch.setattr(signals.filings, "insider_transactions", lambda t, d: transactions)
+    monkeypatch.setattr(signals.filings, "is_foreign_issuer", lambda t: foreign)
     monkeypatch.setattr(signals, "yf", FakeYF(info))
 
 
@@ -214,6 +215,18 @@ def test_a_low_signal_raises_no_alert(con, monkeypatch, cheap_info):
     assert result["strength"] == "LOW"
     assert result["alerted"] is False
     assert db.alerts(con).empty
+
+
+def test_a_foreign_issuer_with_no_form4_is_labelled_not_read_as_no_buying(con, monkeypatch, cheap_info):
+    """A 20-F filer files no Form 4; its empty insider result must say so, not
+    masquerade as 'no insider bought'. Valuation still drives the strength."""
+    _patch(monkeypatch, [], {**cheap_info, "currentPrice": 38.0}, foreign=True)
+
+    result = signals.check_ticker(con, "GRVY")
+
+    assert result["foreign_no_form4"] is True
+    assert result["cluster"] is False
+    assert "foreign issuer, no Form 4" in result["message"]
 
 
 def test_rechecking_a_ticker_does_not_duplicate_its_events_or_alerts(con, monkeypatch, cheap_info):

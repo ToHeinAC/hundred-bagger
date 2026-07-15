@@ -129,7 +129,7 @@ ROIC = EBIT × (1 − effective tax rate) / (equity + total debt − cash)
 | `roic_score` **0** + `XBRL_INCOMPLETE` | Stage 3 ran and found nothing — **unmeasured, not bad** |
 | `roic_score` **0**, no warning | Stage 3 ran and the company genuinely scored 0 |
 
-Never read the middle row as a verdict on the company. It is a statement about EDGAR's tag coverage. `XBRL_INCOMPLETE` is a warning appended to `data_warnings` (via `db.merge_warnings`, which unions rather than overwrites, so Stage 3 cannot erase Stage 2's yfinance warnings) and it **never excludes** (PRD §2.4). The success criterion is **≥80% ROIC coverage, not 100%** — see [data-sources.md §3](data-sources.md#3-xbrl_incomplete--a-coverage-gap-never-a-verdict), which also explains why a 20-F filer flags it.
+Never read the middle row as a verdict on the company. It is a statement about EDGAR's tag coverage. `XBRL_INCOMPLETE` is a warning appended to `data_warnings` (via `db.merge_warnings`, which unions rather than overwrites, so Stage 3 cannot erase Stage 2's yfinance warnings) and it **never excludes** (PRD §2.4). The success criterion is **≥80% ROIC coverage, not 100%** — see [data-sources.md §3](data-sources.md#3-xbrl_incomplete--a-coverage-gap-never-a-verdict) for its two causes. Foreign private issuers (ADRs) that file 20-F in IFRS or a non-USD currency are now read like any other filer — see [data-sources.md §7](data-sources.md#7-foreign-private-issuers--20-f-ifrs-and-currency).
 
 ## 6. Stage 4 — moat (0–10) — implemented
 

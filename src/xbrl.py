@@ -25,7 +25,18 @@ import requests
 from src import config
 
 # Only annual reports. A 10-Q would silently mix quarters into a "yearly" series.
-ANNUAL_FORMS = frozenset({"10-K", "10-K/A"})
+# 20-F is the foreign private issuer's annual report — every US-listed ADR files
+# one, and its XBRL is tagged under form "20-F", so it is admitted alongside the
+# 10-K or no ADR yields a single fact. See docs/data-sources.md §7.
+ANNUAL_FORMS = frozenset({"10-K", "10-K/A", "20-F", "20-F/A"})
+
+# Facts live under a taxonomy namespace. US filers use us-gaap; a 20-F filer uses
+# either us-gaap (Chinese ADRs typically reconcile to it) or ifrs-full (most
+# European/Korean/Japanese ADRs). `annual()` searches both, so each chain below
+# lists us-gaap tags first and their ifrs-full equivalents after. Tag names do
+# not collide across the two vocabularies except where the concept is identical
+# (Assets, Liabilities, GrossProfit) — there one entry serves both.
+TAXONOMIES = ("us-gaap", "ifrs-full")
 
 # Small filers use non-standard tags, so every metric is a fallback chain
 # (PRD §14: "XBRL tag coverage is uneven"). Order expresses preference, not
@@ -36,40 +47,53 @@ REVENUE = (
     "Revenues",
     "RevenueFromContractWithCustomerIncludingAssessedTax",
     "SalesRevenueNet",
+    "Revenue",  # ifrs-full
 )
-EBIT = ("OperatingIncomeLoss",)
+EBIT = ("OperatingIncomeLoss", "ProfitLossFromOperatingActivities")  # 2nd is ifrs-full
 PRETAX_INCOME = (
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+    "ProfitLossBeforeTax",  # ifrs-full
 )
-TAX_EXPENSE = ("IncomeTaxExpenseBenefit",)
-NET_INCOME = ("NetIncomeLoss",)
-GROSS_PROFIT = ("GrossProfit",)
+TAX_EXPENSE = ("IncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations")  # 2nd ifrs-full
+NET_INCOME = ("NetIncomeLoss", "ProfitLoss")  # 2nd is ifrs-full
+GROSS_PROFIT = ("GrossProfit",)  # same tag in us-gaap and ifrs-full
 CFO = (
     "NetCashProvidedByUsedInOperatingActivities",
     "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+    "CashFlowsFromUsedInOperatingActivities",  # ifrs-full
 )
 DEPRECIATION = (
     "DepreciationDepletionAndAmortization",
     "DepreciationAmortizationAndAccretionNet",
     "DepreciationAndAmortization",
+    "DepreciationAndAmortisationExpense",  # ifrs-full
 )
-ASSETS = ("Assets",)
-ASSETS_CURRENT = ("AssetsCurrent",)
-LIABILITIES = ("Liabilities",)
-LIABILITIES_CURRENT = ("LiabilitiesCurrent",)
+ASSETS = ("Assets",)  # same tag in us-gaap and ifrs-full
+ASSETS_CURRENT = ("AssetsCurrent", "CurrentAssets")  # 2nd is ifrs-full
+LIABILITIES = ("Liabilities",)  # same tag in us-gaap and ifrs-full
+LIABILITIES_CURRENT = ("LiabilitiesCurrent", "CurrentLiabilities")  # 2nd is ifrs-full
 EQUITY = (
     "StockholdersEquity",
     "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+    "EquityAttributableToOwnersOfParent",  # ifrs-full, parent-only (mirrors us-gaap order)
+    "Equity",  # ifrs-full, includes NCI
 )
-RETAINED_EARNINGS = ("RetainedEarningsAccumulatedDeficit",)
+RETAINED_EARNINGS = ("RetainedEarningsAccumulatedDeficit", "RetainedEarnings")  # 2nd ifrs-full
 CASH = (
     "CashAndCashEquivalentsAtCarryingValue",
     "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    "CashAndCashEquivalents",  # ifrs-full
 )
-LONG_TERM_DEBT = ("LongTermDebtNoncurrent", "LongTermDebt")
-SHORT_TERM_DEBT = ("LongTermDebtCurrent", "ShortTermBorrowings")
-SHARES = ("CommonStockSharesOutstanding", "WeightedAverageNumberOfDilutedSharesOutstanding")
+# IFRS filers tag borrowings inconsistently; when the tag is absent, ROIC reads
+# debt as zero (see fundamentals.roic), so these are best-effort, not load-bearing.
+LONG_TERM_DEBT = ("LongTermDebtNoncurrent", "LongTermDebt", "NoncurrentBorrowings")
+SHORT_TERM_DEBT = ("LongTermDebtCurrent", "ShortTermBorrowings", "CurrentBorrowings")
+SHARES = (
+    "CommonStockSharesOutstanding",
+    "WeightedAverageNumberOfDilutedSharesOutstanding",
+    "NumberOfSharesOutstanding",  # ifrs-full
+)
 
 
 class SecError(RuntimeError):
@@ -118,11 +142,40 @@ def _is_annual(row: dict) -> bool:
     return 340 <= span <= 400
 
 
-def annual(facts: dict, tags: tuple[str, ...]) -> dict[int, float]:
+def reporting_currency(facts: dict) -> str:
+    """The company's presentation currency — the unit its complete series use.
+
+    A foreign filer reports its full history in a functional currency (KRW, CNY,
+    ...) and often adds a USD *convenience* translation for only the latest year
+    or a subset of metrics. Pinning every metric to the currency that dominates
+    the annual facts keeps ROIC's numerator and denominator in one unit (the
+    ratio is then currency-independent) and stops a metric with no USD overlay
+    from vanishing. Defaults to USD — every domestic filer's answer, and the
+    tie-break so a pure-USD filer is never diverted to a stray foreign unit.
+    """
+    counts: dict[str, int] = {}
+    for taxo in TAXONOMIES:
+        for body in facts.get("facts", {}).get(taxo, {}).values():
+            for unit, rows in body.get("units", {}).items():
+                if unit in ("shares", "pure"):
+                    continue
+                for row in rows:
+                    if row.get("form") in ANNUAL_FORMS:
+                        counts[unit] = counts.get(unit, 0) + 1
+    if not counts:
+        return "USD"
+    return max(counts, key=lambda u: (counts[u], u == "USD"))
+
+
+def annual(facts: dict, tags: tuple[str, ...], currency: str = "USD") -> dict[int, float]:
     """Fiscal-year series for the best tag in the chain, keyed by period-end year.
 
-    Keyed by the calendar year of the period end, not by EDGAR's `fy` field — a
-    single 10-K carries three years of income statement under one `fy`.
+    Searches both taxonomies (`us-gaap`, `ifrs-full`) for every tag and pins
+    monetary values to `currency` (share counts always use the `shares` unit), so
+    a 20-F filer reporting IFRS in its home currency resolves the same way a
+    domestic 10-K filer does. Keyed by the calendar year of the period end, not
+    by EDGAR's `fy` field — a single annual report carries three years of income
+    statement under one `fy`.
 
     **Not simply the first tag with data.** A company that migrates tags mid-life
     keeps reporting the retired one for its old years: AMPH moved to the
@@ -135,13 +188,14 @@ def annual(facts: dict, tags: tuple[str, ...]) -> dict[int, float]:
     An empty dict means no tag reported anything. The caller flags XBRL_INCOMPLETE;
     it never excludes on absence (PRD §2.4).
     """
-    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    all_facts = facts.get("facts", {})
     candidates = []
     for rank, tag in enumerate(tags):
-        units = us_gaap.get(tag, {}).get("units", {})
-        series = _by_year(units.get("USD") or units.get("shares") or [])
-        if series:
-            candidates.append((max(series), len(series), -rank, series))
+        for taxo in TAXONOMIES:
+            units = all_facts.get(taxo, {}).get(tag, {}).get("units", {})
+            series = _by_year(units.get(currency) or units.get("shares") or [])
+            if series:
+                candidates.append((max(series), len(series), -rank, series))
     if not candidates:
         return {}
 

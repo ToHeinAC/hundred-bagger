@@ -148,7 +148,7 @@ src/
 tests/                           # network fully mocked; green offline
 data/
   100baggers.duckdb              # gitignored — the app's entire state
-  moat_input/*.txt               # gitignored — 10-K Item 1, fetch → judge → save
+  moat_input/*.txt               # gitignored — Business section (10-K Item 1 / 20-F Item 4), fetch → judge → save
 ```
 
 ## Why DuckDB

@@ -159,3 +159,27 @@ def test_fetch_raises_when_item1_is_empty(monkeypatch, tmp_path):
     monkeypatch.setattr(moat, "Company", _fake_company("   "))
     with pytest.raises(ValueError, match="empty"):
         moat.fetch_ticker("CRVL", tmp_path)
+
+
+class Fake20F:
+    """A foreign private issuer's annual report: 20-F, Business in Item 4."""
+    company, form, filing_date, accession_no = "GRAVITY", "20-F", "2026-04-24", "0001628280-26"
+
+    def __init__(self, business: str):
+        self._business = business
+
+    def obj(self):
+        return type("TwentyF", (), {"business": self._business})()
+
+
+def test_fetch_reads_the_20f_business_section_for_a_foreign_filer(monkeypatch, tmp_path):
+    filing = Fake20F("We publish mobile games.")
+    filings = type("Filings", (), {"latest": lambda self: filing})()
+    monkeypatch.setattr(
+        moat, "Company",
+        lambda ticker: type("Company", (), {"get_filings": lambda self, form: filings})(),
+    )
+    text = moat.fetch_ticker("GRVY", tmp_path).read_text()
+    assert "# form:         20-F" in text
+    assert "# item:         4 (Information on the Company)" in text
+    assert text.endswith("We publish mobile games.")

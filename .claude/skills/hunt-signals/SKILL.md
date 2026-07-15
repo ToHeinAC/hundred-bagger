@@ -46,6 +46,12 @@ buying inside a rolling window, above an aggregate dollar bar. Thresholds:
 `CLUSTER_MIN_INSIDERS`, `CLUSTER_WINDOW_DAYS`, `CLUSTER_MIN_VALUE` in
 `src/config.py`.
 
+**Foreign private issuers (ADRs) file no Form 4** — they are exempt from Section
+16 — so their insider channel is structurally empty. A row that reads *"insider
+data N/A (foreign issuer, no Form 4)"* means the data does not exist, **not** that
+no insider bought. Never report it as insider inactivity; valuation and price zone
+still drive its signal.
+
 **Valuation gates** — three independent yes/no tests (P/FCF, EV/EBITDA, PEG), not
 a score. A ratio that could not be computed is **unknown, never a pass**. One
 failed gate sinks the valuation.

@@ -2,17 +2,17 @@
 
 Two external sources, and they are not equals. **SEC EDGAR is a primary source** — it *is* the filing. **yfinance is an unofficial scraper** of a site that never promised us anything. Stage 3 exists partly to cross-check Stage 2 against Stage 3's numbers, and where they disagree, EDGAR wins.
 
-Source of truth: `src/xbrl.py` (EDGAR JSON), `src/filings.py` (EDGAR documents), `src/moat.py` (10-K Item 1), `src/universe.py` + `src/scorer.py` (yfinance). Scoring rules are in [scoring.md](scoring.md); column semantics in [schema.md](schema.md).
+Source of truth: `src/xbrl.py` (EDGAR JSON), `src/filings.py` (EDGAR documents), `src/moat.py` (10-K/20-F Business section), `src/universe.py` + `src/scorer.py` (yfinance). Scoring rules are in [scoring.md](scoring.md); column semantics in [schema.md](schema.md). Foreign private issuers (ADRs) are handled in [§7](#7-foreign-private-issuers--20-f-ifrs-and-currency).
 
 ## 1. SEC EDGAR — two surfaces, two libraries
 
 | Need | Surface | Library | Module |
 |------|---------|---------|--------|
 | Stage 3 fundamentals | `companyfacts` JSON API | plain `requests` | `src/xbrl.py` |
-| Stage 4 10-K Item 1 text | filing documents | `edgartools` | `src/moat.py` |
+| Stage 4 Business text (10-K Item 1 / 20-F Item 4) | filing documents | `edgartools` | `src/moat.py` |
 | Phase 3 Form 4 + 8-K | filing documents | `edgartools` | `src/filings.py` |
 
-Both, not one. The XBRL numbers are already structured, so a JSON API and 40 lines of extraction beat a dependency. Filing *text* is the opposite problem — locating and parsing Item 1 out of a 10-K is exactly what edgartools is good at, and reimplementing it would be foolish.
+Both, not one. The XBRL numbers are already structured, so a JSON API and 40 lines of extraction beat a dependency. Filing *text* is the opposite problem — locating and parsing the Business section (Item 1 of a 10-K, Item 4 of a 20-F) is exactly what edgartools is good at, and reimplementing it would be foolish.
 
 **`src/filings.py` is where edgartools is quarantined.** It is an unofficial client over a government API — both of which change — so the callers (`signals.py`, `monitor.py`) never see an edgartools object, only dicts and file paths. It also owns the shared SEC `identity()` and `throttle()`; `src/moat.py` imports them from here rather than keeping its own copy, so there is exactly one place the rate limit and the user-agent live for the document surface.
 
@@ -58,7 +58,7 @@ So `annual()` prefers the **most current** series: of the tags in the chain that
 - **Instant facts (balance sheet) have no `start`** and are always accepted.
 - **Restatements: the latest-`filed` value wins** for a given year, so a restated figure supersedes the original.
 
-Only `10-K` and `10-K/A` are read (`xbrl.ANNUAL_FORMS`).
+`xbrl.ANNUAL_FORMS` reads `10-K`/`10-K/A` **and** `20-F`/`20-F/A` — the latter is the foreign private issuer's annual report (§7). A 10-Q is still excluded.
 
 ## 3. `XBRL_INCOMPLETE` — a coverage gap, never a verdict
 
@@ -73,9 +73,9 @@ See [scoring.md §5](scoring.md#5-stage-3--roic--avoidance-010--implemented) for
 ### It has two distinct causes. Do not read it as one signal.
 
 1. **Genuinely non-standard tags** — a small filer no chain matches. The intended case.
-2. **The company files 20-F, not 10-K.** Foreign private issuers file 20-F, which `ANNUAL_FORMS` excludes, so *every* fact is filtered out and the ticker flags `XBRL_INCOMPLETE`. Live example: **AHMA** maps to a 20-F filer.
+2. **A metric with no series in the reporting currency** — a foreign filer whose USD *convenience* translation covers only some tags or years can leave that metric empty once every value is pinned to one currency (§7).
 
-Non-US issuers and ADRs are out of scope (PRD §4), so flagging case 2 is correct behaviour — it is the Stage 1 region filter leaking, caught downstream. But it means an `XBRL_INCOMPLETE` ticker is *either* worth a manual look *or* simply out of scope, and only opening it tells you which.
+Both are coverage gaps worth a manual look, not verdicts. Before 2026-07 there was a third cause — *the 20-F filer itself*, whose facts the `{10-K, 10-K/A}` form filter dropped whole. That is now read (§7), and ADRs are in scope.
 
 ## 4. yfinance — the scraper, and what it is bad at
 
@@ -130,6 +130,39 @@ One malformed Form 4 must not lose the other twenty, so per-filing parsing is wr
 - `EIGHTK_LOOKBACK_DAYS = 90` — how far back 8-Ks are pulled.
 - `EIGHTK_CHAR_CAP = 20_000` — per-filing truncation. The material fact in an 8-K is at the top; the exhibits are not.
 - **No 8-K at all returns `None`, and that is a normal outcome, not an error.** Most companies file nothing in a given quarter.
+
+## 7. Foreign private issuers — 20-F, IFRS, and currency
+
+US-listed ADRs pass the Stage 1 `region="us"` filter (Yahoo lists them on NYSE/Nasdaq), so the funnel already admits them. They are **not** domestic 10-K filers, and three assumptions had to give way for the funnel to actually process one.
+
+### They file 20-F, not 10-K
+
+A foreign private issuer's annual report is a **20-F** (Business narrative in **Item 4**, not Item 1), and its XBRL is tagged under form `20-F`. So:
+
+- `xbrl.ANNUAL_FORMS` includes `20-F`/`20-F/A` — otherwise `_by_year` drops every fact and the ticker flags `XBRL_INCOMPLETE`.
+- `moat.fetch_ticker` requests `10-K` **or** `20-F` and takes whichever the company filed; edgartools exposes the Business section as `.business` on both, so the header labels the item (`1` vs `4`) from `filing.form`.
+
+### us-gaap or ifrs-full
+
+A 20-F filer reports under one of two taxonomies. Chinese ADRs typically reconcile to **us-gaap**; most European/Korean/Japanese ADRs file **ifrs-full**, whose tag names differ (`Revenue` not `Revenues`, `ProfitLoss` not `NetIncomeLoss`, operating profit as `ProfitLossFromOperatingActivities`, …). `xbrl.annual()` searches **both** namespaces, so every metric chain carries its us-gaap tags followed by their ifrs-full equivalents.
+
+**IFRS debt tags are best-effort.** IFRS borrowings tagging is inconsistent and often absent; `fundamentals.roic` reads an absent debt tag as zero — the same convention a domestic filer gets — so a levered IFRS filer can look slightly better on invested capital than it is. A coverage limit, flagged not hidden.
+
+### Currency: pin to the functional currency, never USD
+
+The trap that makes this more than a tag-mapping exercise. A foreign filer reports its **full history in its functional currency** (KRW, CNY, …) and adds a USD **convenience** translation for only the latest year or a subset of metrics — DAO's Revenue is CNY-only, its Assets are CNY+USD. Reading `units["USD"]` would drop metrics and, worse, mix currencies across the ROIC numerator and denominator.
+
+So `xbrl.reporting_currency(facts)` picks the currency that dominates the annual facts, and `annual(facts, chain, currency)` pins every monetary value to it. ROIC, Piotroski and Altman are all ratios within a single filing, so a consistent currency makes them **currency-independent** — no FX conversion is needed. A pure-USD (domestic) filer resolves to USD and its path is unchanged.
+
+Verified live: **GRVY** (Korea, IFRS, KRW) 6/10 on 44.9% median ROIC; **DAO** (China, CNY) and **API** (China, USD) extracted clean; **AAPL** unchanged at 10/10.
+
+### No Form 4 — the insider signal is structurally absent
+
+Foreign private issuers are **exempt from Section 16**, so they never file Form 4. `signals.check_ticker` therefore calls `filings.is_foreign_issuer()` when it finds zero open-market buys, and labels the result *"insider data N/A (foreign issuer, no Form 4)"* — an empty insider signal for an ADR means the data does not exist, not that no insider bought.
+
+### Scope note
+
+This widens the funnel past **PRD §4**, which scoped non-US issuers out. The PRD records the original intent; ADRs with EDGAR coverage are now deliberately in scope (IMPLEMENTATION.md §5).
 
 ## See also
 

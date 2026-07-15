@@ -50,7 +50,8 @@ CHAINS = {
 def metrics(ticker: str, market_cap: float | None) -> tuple[dict, list[str]]:
     """One companyfacts call, every Stage 3 metric. Returns (metrics, warnings)."""
     facts = xbrl.company_facts(ticker)
-    table = {name: xbrl.annual(facts, tags) for name, tags in CHAINS.items()}
+    currency = xbrl.reporting_currency(facts)  # KRW/CNY/... for a foreign filer, USD otherwise
+    table = {name: xbrl.annual(facts, tags, currency) for name, tags in CHAINS.items()}
 
     years = sorted(table.get("assets", {}))
     latest = years[-1] if years else None
