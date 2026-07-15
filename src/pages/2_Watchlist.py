@@ -16,6 +16,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src import db  # noqa: E402
+from src.metric_help import METRIC_HELP  # noqa: E402
 
 BUSY_MSG = "A skill is writing to the database right now. Reload in a moment."
 
@@ -82,8 +83,12 @@ st.dataframe(
     hide_index=True,
     width="stretch",
     column_config={
-        "quant_score": st.column_config.NumberColumn("quant", help="0–14"),
-        "total_score": st.column_config.NumberColumn("total", help="0–34"),
-        "data_warnings": st.column_config.TextColumn("warnings"),
+        "sector": st.column_config.TextColumn("sector", help=METRIC_HELP["sector"]),
+        "market_cap": st.column_config.TextColumn("market_cap", help=METRIC_HELP["market_cap"]),
+        "stage": st.column_config.NumberColumn("stage", help=METRIC_HELP["stage"]),
+        "quant_score": st.column_config.NumberColumn("quant", help=METRIC_HELP["quant_score"]),
+        "total_score": st.column_config.NumberColumn("total", help=METRIC_HELP["total_score"]),
+        "status": st.column_config.TextColumn("status", help=METRIC_HELP["status"]),
+        "data_warnings": st.column_config.TextColumn("warnings", help=METRIC_HELP["data_warnings"]),
     },
 )

@@ -22,6 +22,7 @@ import yfinance as yf
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src import db  # noqa: E402
+from src.metric_help import METRIC_HELP  # noqa: E402
 
 BUSY_MSG = "A skill is writing to the database right now. Reload in a moment."
 
@@ -103,7 +104,7 @@ def load_prices(ticker: str) -> pd.Series | None:
 def render_metrics(row: pd.Series, fields: list[tuple]) -> None:
     for chunk in [fields[i : i + 4] for i in range(0, len(fields), 4)]:
         for col, (label, name, fmt) in zip(st.columns(4), chunk):
-            col.metric(label, fmt(row[name]))
+            col.metric(label, fmt(row[name]), help=METRIC_HELP.get(name))
 
 
 def render_stage(row: pd.Series, title: str, subscore: str, fields: list[tuple],
@@ -151,10 +152,10 @@ row = ranked[ranked["ticker"] == ticker].iloc[0]
 
 st.header(f"{ticker} — {_text(row['name'])}")
 head = st.columns(4)
-head[0].metric("Total score", _int(row["total_score"]), help="0–34")
-head[1].metric("Stage", _int(row["stage"]))
-head[2].metric("Status", _text(row["status"]))
-head[3].metric("Sector", _text(row["sector"]))
+head[0].metric("Total score", _int(row["total_score"]), help=METRIC_HELP["total_score"])
+head[1].metric("Stage", _int(row["stage"]), help=METRIC_HELP["stage"])
+head[2].metric("Status", _text(row["status"]), help=METRIC_HELP["status"])
+head[3].metric("Sector", _text(row["sector"]), help=METRIC_HELP["sector"])
 
 render_caveats(row, load_exclusions(ticker))
 
@@ -175,3 +176,13 @@ if not pd.isna(row["moat_score"]):
     st.markdown(_text(row["moat_notes"]))
     st.markdown("**Key risks**")
     st.markdown(_text(row["key_risks"]))
+
+with st.expander("Metric glossary"):
+    for title, fields in [
+        ("Stage 2 — Quant", QUANT_FIELDS),
+        ("Stage 3 — ROIC", ROIC_FIELDS),
+        ("Stage 4 — Moat", MOAT_FIELDS),
+    ]:
+        st.markdown(f"**{title}**")
+        for label, name, _fmt in fields:
+            st.markdown(f"- **{label}** — {METRIC_HELP[name]}")
