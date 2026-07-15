@@ -59,7 +59,7 @@ Claims are not evidence.
 | **0** | A B2B supplier competing on price and spec, or a consumer name nobody would pay a premium for. Most microcaps are here. |
 | **1** | Recognised within a niche; brand helps win the bid but does not command a premium. |
 | **2** | Demonstrable pricing power or preference: premium pricing sustained against cheaper equivalents, repeat purchase driven by the name, brand cited as a reason customers choose it. |
-| **3** | The brand *is* the category — the name is the reason to buy, and a rival with an identical product at a lower price still loses. Very rare at $50M–$1B. |
+| **3** | The brand *is* the category — the name is the reason to buy, and a rival with an identical product at a lower price still loses. Very rare at $75M–$2B. |
 
 **`network` — does each additional user make the product better for the others?**
 

@@ -22,7 +22,7 @@ through the results.
 
 ## Filters applied (defined in `src/config.py`)
 
-Market cap $50M–$1B · avg 3-month volume > 50k · TTM revenue > $10M · US region ·
+Market cap $75M–$2B · avg 3-month volume > 50k · TTM revenue > $10M · US region ·
 six included sectors (financials, utilities, real estate, energy and basic
 materials are excluded) · real exchanges only (OTC/pink sheets dropped).
 

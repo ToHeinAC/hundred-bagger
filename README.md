@@ -1,7 +1,7 @@
 # 100-Bagger Hunter
 
 A human-driven stock screening funnel for long-horizon compounders, in the
-$50M–$1B market cap band.
+$75M–$2B market cap band.
 
 **Claude Code is the reasoning engine.** Each pipeline stage is a skill the user
 invokes on demand. Python only fetches, computes, and persists — it never calls

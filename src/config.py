@@ -23,8 +23,8 @@ SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "")
 
 # --- Stage 1: universe hard filters -----------------------------------------
 
-MIN_MARKET_CAP = 50_000_000
-MAX_MARKET_CAP = 1_000_000_000
+MIN_MARKET_CAP = 75_000_000
+MAX_MARKET_CAP = 2_000_000_000
 MIN_AVG_VOLUME = 50_000
 MIN_REVENUE_TTM = 10_000_000
 REGION = "us"

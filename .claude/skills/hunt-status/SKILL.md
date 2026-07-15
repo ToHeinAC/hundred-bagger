@@ -29,7 +29,7 @@ recommendation is the actual value of this skill.
 no scheduler; nothing refreshes unless the user asks):
 
 - `universe_last_built` older than ~3 months → suggest `/hunt-universe`. The
-  $50M–$1B cap band means names drift in and out of range constantly.
+  $75M–$2B cap band means names drift in and out of range constantly.
 - `scores_last_run` older than ~1 month, or older than `universe_last_built`
   (which means tickers exist that were never scored) → suggest `/hunt-score`.
 - A null date means that stage has never run.

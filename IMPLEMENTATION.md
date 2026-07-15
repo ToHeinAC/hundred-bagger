@@ -313,7 +313,7 @@ strings are never interpolated into SQL.
 - **`universe.revenue_ttm` is NULL** — the screener filters on revenue but does
   not return it. Backfilled in Stage 2.
 - **`REVENUE_DECLINE` is the dominant exclusion.** It fires on any negative 3y
-  revenue CAGR, which in a $50M–$1B universe is a large minority (a 40-ticker
+  revenue CAGR, which in a $75M–$2B universe is a large minority (a 40-ticker
   sample excluded 32, mostly on this rule). Verified as correct, not a sign error.
   It makes the screen strict by design, and is the first threshold to revisit if
   the funnel runs dry.

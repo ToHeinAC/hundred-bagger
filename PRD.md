@@ -36,7 +36,7 @@ This system splits along exactly that seam. **Python does arithmetic and I/O. Cl
 
 ### Primary persona: the technically-comfortable long-horizon retail investor
 
-- **Who:** an individual investor running their own money, hunting asymmetric multi-year positions in the $50M–$1B market cap band. Comfortable in a terminal, already uses Claude Code, reads 10-Ks.
+- **Who:** an individual investor running their own money, hunting asymmetric multi-year positions in the $75M–$2B market cap band. Comfortable in a terminal, already uses Claude Code, reads 10-Ks.
 - **Technical comfort:** high. Can run `uv`, edit a TOML file, read a SQL schema. Does *not* want to maintain a scheduler, a server, or a cloud bill.
 - **Time budget:** ~10 min/week for signals and monitoring; ~1 hour/month for a full rescreen; ~2 hours/quarter for a universe rebuild.
 
