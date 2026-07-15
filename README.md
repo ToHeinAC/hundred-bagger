@@ -73,8 +73,7 @@ Pipeline Overview (funnel + exclusion breakdown), Watchlist (ranked, filterable)
 Stock Detail (price chart, every metric grouped by stage, moat notes, risks —
 enough to answer "why is this on my watchlist?" without re-running anything), and
 Alerts (buy signals, sell triggers, red flags, with an acknowledge flow). It opens
-the database **read-only** everywhere except the one acknowledge write, and carries
-a safe exit button that terminates only its own process.
+the database **read-only** everywhere except the one acknowledge write.
 
 Every module is also a CLI, which is exactly what the skills shell out to:
 

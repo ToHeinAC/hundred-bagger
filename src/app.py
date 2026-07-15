@@ -1,4 +1,4 @@
-"""Dashboard home — pipeline overview, data freshness, safe exit.
+"""Dashboard home — pipeline overview and data freshness.
 
 Read-only: Phase 1 has no write path from the UI (PRD §6). Every page opens the
 database with read_only=True, so a dashboard bug can never corrupt screening state.
@@ -6,8 +6,6 @@ database with read_only=True, so a dashboard bug can never corrupt screening sta
 
 from __future__ import annotations
 
-import os
-import signal
 import sys
 from pathlib import Path
 
@@ -35,18 +33,6 @@ def load_summary() -> dict:
     """
     with db.connect(read_only=True) as con:
         return db.status_summary(con)
-
-
-def safe_exit_button() -> None:
-    """SIGTERM to our own PID only — never a port-kill, which would take down
-    SSH or forwarded connections sharing the port (PRD §9)."""
-    with st.sidebar:
-        st.divider()
-        st.caption("Shut down the dashboard")
-        confirm = st.checkbox("I want to stop the app", key="confirm_exit")
-        if st.button("Exit", disabled=not confirm, width="stretch"):
-            st.warning("Shutting down. You can close this tab.")
-            os.kill(os.getpid(), signal.SIGTERM)
 
 
 def render_empty_state(summary: dict | None) -> None:
@@ -93,8 +79,6 @@ def render_overview(summary: dict) -> None:
 
 st.title("100-Bagger Hunter")
 st.caption("Screening state is written by the `hunt-*` skills. This dashboard only reads it.")
-
-safe_exit_button()
 
 try:
     summary = load_summary()

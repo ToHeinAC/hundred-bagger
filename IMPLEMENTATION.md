@@ -98,15 +98,15 @@ Phase 4 extends this with `src.portfolio` — see [PRD.md](PRD.md) §10.
 
 Actually run, not asserted.
 
-**Stage 1** — 762 tickers, inside the 400–1,200 target band:
+**Stage 1** — 985 tickers at the `$75M–$2B` band, inside the 400–1,200 target band:
 
 ```
-after region        19,994
-after sector        10,595  (−9,399)
-after market_cap     2,328  (−8,267)
-after volume         1,088  (−1,240)
-after revenue          797    (−291)
-after OTC filter       762     (−36)
+after region        19,978
+after sector        10,589  (−9,389)
+after market_cap     2,844  (−7,745)
+after volume         1,313  (−1,531)
+after revenue        1,027    (−286)
+after OTC filter       985     (−42)
 ```
 
 **Stage 2** — scores, excludes with a reason, advances. `CRVL` 9/14 → Stage 2;
@@ -123,11 +123,12 @@ to `data/moat_input/AMPH.txt`; `moat save` validated the JSON, summed
 ticker to Stage 4 + `status='watchlist'`. Out-of-range input is rejected with a
 precise `ValueError`.
 
-> **Note on funnel depth.** Only ~40 of the 762 tickers were ever quant-scored (a
-> Phase-1 smoke run), so just 2 reached Stage 2 and the Stage 3/4 cohorts are
-> correspondingly tiny. The *pipeline* is verified; the *funnel* is not yet
-> populated. Run a full `/hunt-score` to get a real Stage 2 cohort, and only then
-> is the ≥80% ROIC coverage criterion meaningfully measurable.
+> **Funnel now populated (2026-07-15).** A full run at the current `$75M–$2B` band
+> carried the funnel end to end: 985 universe → 106 Stage 2 (≥8/14) → 31 Stage 3
+> (≥6/10) → **18-name Watchlist B** (Stage 4 moat gate: `moat_total ≥ 6 AND
+> durability ≥ 3`). Stage 3 ROIC coverage was **68%** (72/106) — below the ≥80%
+> target, so the Stage 3 ranking is less complete than a clean run: small-filer
+> XBRL gaps, widened by the lower cap floor. Flagged, not hidden.
 
 **Phase 3** — live shakedown on AMPH, 2026-07-14, no populated funnel needed
 (`--ticker` runs standalone).

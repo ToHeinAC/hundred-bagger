@@ -65,7 +65,6 @@ Anyone wanting automated or algorithmic trading. This system never places an ord
 - ✅ `/hunt-status` pipeline summary with data-freshness reporting
 - ✅ DuckDB persistence: the **full 9-table schema** ships in Phase 1, even though later phases populate parts of it
 - ✅ Streamlit dashboard: Pipeline Overview + Watchlist pages
-- ✅ Safe exit button in the dashboard (SIGTERM to the app's own PID)
 - ✅ Stage 3 ROIC + avoidance screening from SEC EDGAR XBRL *(Phase 2)*
 - ✅ Stage 4 moat scoring — Claude Code reads 10-K Item 1, scores, writes back *(Phase 2)*
 - ✅ Entry signals: insider cluster buys, valuation gates, price zone *(Phase 3)*
@@ -172,7 +171,7 @@ hundred-bagger/
 │   ├── hunt-portfolio/SKILL.md     # Portfolio CRUD + recommendations
 │   └── hunt-status/SKILL.md        # Pipeline summary
 ├── src/
-│   ├── app.py                      # Streamlit entry point (+ safe exit button)
+│   ├── app.py                      # Streamlit entry point
 │   ├── pages/                      # pipeline, watchlist, stock_detail, portfolio, alerts
 │   ├── config.py                   # thresholds + .env scalar loading
 │   ├── db.py                       # connection, init, status summary — the ONLY SQL surface
@@ -270,7 +269,7 @@ Two tiers, per AGENTS.md §5.3:
 
 ### Deployment
 
-There is none. `uv run streamlit run src/app.py --server.port 8501`, on the user's machine. The dashboard carries a **safe exit button** that sends `SIGTERM` to the app's own PID — never a port-kill, which risks terminating SSH or forwarded connections.
+There is none. `uv run streamlit run src/app.py --server.port 8501`, on the user's machine.
 
 ---
 
@@ -328,7 +327,6 @@ A user with no prior setup can clone the repo, run `uv sync`, set `SEC_USER_AGEN
 - ✅ Every excluded ticker has a machine-readable reason code in `exclusions`
 - ✅ `/hunt-status` reports data freshness for universe, scores, and last monitoring run
 - ✅ The dashboard renders the funnel, exclusion breakdown, and a filterable watchlist from a database populated entirely by skills
-- ✅ The safe exit button terminates only the Streamlit process
 - ✅ `grep -r anthropic src/ pyproject.toml` returns nothing
 
 ### Quality indicators
@@ -357,7 +355,7 @@ A user with no prior setup can clone the repo, run `uv sync`, set `SEC_USER_AGEN
 - ✅ `src/universe.py` + `/hunt-universe`
 - ✅ `src/scorer.py` + `/hunt-score` (quant rubric + auto-exclusions)
 - ✅ `/hunt-status`
-- ✅ `src/app.py` with safe exit button; Pipeline Overview + Watchlist pages
+- ✅ `src/app.py`; Pipeline Overview + Watchlist pages
 - ✅ `IMPLEMENTATION.md`, `docs/architecture.md`, `docs/schema.md`, `docs/scoring.md`
 
 **Validation:** `/hunt-universe` → `/hunt-score` → `/hunt-status` runs clean; dashboard shows a non-empty funnel and a ranked watchlist; tests green offline.
@@ -438,7 +436,7 @@ A user with no prior setup can clone the repo, run `uv sync`, set `SEC_USER_AGEN
 | `docs/scoring.md` | Quant, ROIC, and moat rubrics; auto-exclusion and sell-trigger tables |
 | `docs/skills.md` | Per-skill specification |
 | `docs/data-sources.md` | yfinance, EDGAR XBRL, edgartools; rate limits and known gaps |
-| `docs/dashboard.md` | Page structure, read-only discipline, safe exit |
+| `docs/dashboard.md` | Page structure, read-only discipline |
 
 ### Key dependencies
 

@@ -131,9 +131,6 @@ The Stock Detail page (Phase 2) makes the dashboard's **only** network call — 
 cached yfinance request for a 1-year price chart, which degrades to a caption if it
 fails. Everything else on every page comes from DuckDB.
 
-The app carries a **safe exit button** that sends `SIGTERM` to its own PID. It is
-never a port-kill — that risks terminating SSH or forwarded connections.
-
 ## Layout
 
 ```
