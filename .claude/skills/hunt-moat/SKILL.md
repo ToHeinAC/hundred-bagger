@@ -1,14 +1,19 @@
 ---
 name: hunt-moat
-description: Stage 4 — read each Stage 3 survivor's Business section (Item 1 of a 10-K, or Item 4 of a 20-F for ADRs) and score its moat 0–18 across six dimensions plus durability 0–5, then persist the judgement. This is the one stage where you are the reasoning engine, not a wrapper around a script. Use after /hunt-roic, or when the user wants to (re)judge moats. Runs 10–30 min.
+description: Stage 4 — read each Stage 3 survivor's Business section (Item 1 of a 10-K, or Item 4 of a 20-F for ADRs), score its moat 0–18 across six dimensions plus durability 0–5, research its TAM to test whether a 100x outcome is arithmetically possible, then persist the judgement. This is the one stage where you are the reasoning engine, not a wrapper around a script. Use after /hunt-roic, or when the user wants to (re)judge moats. Runs 20–45 min.
 ---
 
 # hunt-moat — Stage 4 moat scoring
 
 **You are the judge here.** Every other `hunt-*` skill shells out to a script and
-reports the number it got back. This one does not. Python fetches the text and
+reports the number it got back. This one does not. Python fetches the filing and
 validates your JSON; the scoring is yours, and the rubric below is the only place
 it exists. Apply it literally.
+
+Two separate questions, and keeping them separate is the point: **§2 asks how good
+the business is** (a 0–10 score that feeds the funnel), **§3 asks whether 100x is
+even possible** (a TAM check that feeds no score and can contradict §2 without
+either being wrong).
 
 ## 1. Fetch
 
@@ -32,6 +37,10 @@ save as you go — do not read forty files and then try to score them from memor
 **The Business section is a marketing document.** The company wrote it, its lawyers cleaned it,
 and every filer on earth claims a "leading position in an attractive market."
 Claims are not evidence.
+
+This posture *is* first-principles thinking: the filing asserts, and you check what
+would have to be true underneath. `docs/first-principles.md` (§6, Stage 4) is the
+long form — read it once before your first judgement of a run.
 
 - **The default score for a dimension is 0.** Score above 0 only on *specific,
   checkable* evidence — named contracts, quantified switching costs, cited market
@@ -146,7 +155,46 @@ and it is the single most important qualitative judgement in the whole funnel.
   and falsifiable ("top customer is 31% of revenue and its contract renews in
   2026"), never generic ("competition", "macro conditions").
 
-## 3. Save
+## 3. Research the TAM
+
+**This is not part of the moat score, or of any score.** It answers a different
+question, and it is the only one that can disqualify a genuinely good business:
+*is a 100x outcome arithmetically possible at all?*
+
+For it to be, the resulting company has to fit inside its market:
+
+```
+market_cap × 100  <  10 × TAM      ⟺      TAM > 10 × market_cap
+```
+
+The `× 10` is deliberate headroom — the market itself grows over a 20-year hold, so
+demanding the future company fit inside *today's* TAM would reject everything. What
+this catches is the genuine impossibility: a company whose 100x market cap would be
+several times its entire market is not going to 100-bag, whatever it scored above.
+
+**Use WebSearch.** One or two searches per ticker for third-party estimates of the
+market. Budget ~1–2 min per name on top of the judging.
+
+Rules, and they are the same skeptical posture as the rubric:
+
+- **The market is the one the company *serves*, not the broadest category it could
+  claim.** "The AI market" is not the TAM of a company selling AI-assisted claims
+  triage to regional insurers — the US claims-management market is. Getting this
+  wrong makes every company look like it has infinite headroom, which is exactly
+  the failure this check exists to prevent.
+- **Prefer a cited third-party figure to the filing's own number.** The company's TAM
+  is a marketing number in a document you have already been told not to trust.
+- **Where credible sources conflict, take the lower one.** The check is a floor test;
+  inflating the TAM defeats it.
+- **`null` is a legitimate answer.** If no defensible figure exists, send
+  `"tam_usd": null` and explain why in `tam_basis`. A guess here is worse than a gap —
+  the same argument as an Item 1 too thin to score. An unknown TAM raises no alert and
+  renders as "unknown, not zero".
+- **Do not compute the headroom.** Python derives it from `tam_usd` and the Stage 1
+  market cap, exactly as it derives `moat_total` and `moat_score`. Arithmetic is not
+  your job here.
+
+## 4. Save
 
 One call per ticker, immediately after judging it:
 
@@ -175,27 +223,36 @@ Emit exactly this shape:
     "Top ten clients are 38% of revenue; a single loss is material",
     "Cost advantage rests on in-house software that a well-funded rival could replicate in ~3 years",
     "State licensure is a barrier to entrants but not to the two incumbents already licensed"
-  ]
+  ],
+  "tam_usd": 40000000000,
+  "tam_basis": "US workers'-comp and auto claims-management services, ~$40B (Grand View Research, 2025). Not the $500B+ 'insurtech' category the filing gestures at — CRVL sells claims administration, not insurance."
 }
 ```
 
 Rules on the payload:
 
-- The six dimensions, `durability`, `founder_led`, `reinvest_runway`, `notes` and
-  `key_risks` are all **required**. Missing or out-of-range values are rejected.
+- The six dimensions, `durability`, `founder_led`, `reinvest_runway`, `notes`,
+  `key_risks`, `tam_usd` and `tam_basis` are all **required**. Missing or
+  out-of-range values are rejected.
 - **Do not send `moat_total` or `moat_score`.** You score the six dimensions;
   Python sums them and derives the 0–10 score. Arithmetic is not your job here —
   that separation is what keeps the scoring auditable.
 - `key_risks` may be a JSON array (preferred) or a string.
 - `founder_led` must be a real boolean, not `"true"`.
+- `tam_usd` is **whole USD as an integer** (`40000000000`, not `"40B"`), or `null`.
+  The key is required even when the value is null.
+- `tam_basis` is always required — a non-empty string naming the source and its date,
+  or, when `tam_usd` is null, why no defensible figure exists.
 
-The command prints the result and whether the ticker cleared the gate:
+The command prints the result, whether the ticker cleared the gate, and the headroom
+alongside it — next to the score, never folded into it:
 
 ```
 CRVL  moat_total 9/18  durability 4/5  -> moat_score 6/10  |  ADVANCED to Stage 4 (Watchlist B)
+      TAM $40.0B  headroom 20.4x  -> 100x fits
 ```
 
-## 4. The gate
+## 5. The gate
 
 **`moat_total >= 6` AND `moat_durability >= 3`.** Both, not either.
 
@@ -209,12 +266,23 @@ median company scoring 1 across the board. The durability floor is what does the
 work. A company with a wide moat and `durability = 2` does **not** advance, and
 that is correct: it is not going to compound for a decade.
 
-## 5. Then
+**The TAM check is not part of this gate and never will be.** A ticker whose 100x
+is implausible still advances to Watchlist B on its moat, and still gets a 🎯 TAM
+alert saying the arithmetic does not work. Those two facts are not in conflict —
+one is about the business, the other about the size of the prize — and collapsing
+them into a single number would destroy the information.
+
+## 6. Then
 
 Report to the user:
 
 - how many tickers you judged, and how many cleared the gate
 - the score distribution, and the names at the top
+- **every ticker that failed the headroom test** — a high moat score with an
+  implausible 100x is the single most useful finding this stage produces, because
+  nothing else in the funnel would have caught it. Name them, give the headroom,
+  and be plain that it is not a criticism of the business.
+- tickers where you could not establish a TAM, and why
 - any ticker whose Item 1 was too thin to judge honestly — say so rather than
   inventing a score from nothing. A file you could not score is a fact worth
   reporting, not a gap to fill.

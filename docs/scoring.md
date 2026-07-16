@@ -281,3 +281,25 @@ All three come from yfinance (`yf.Ticker(t).info`) and each is independently **p
 **The cluster buy is what separates `HIGH` from the rest. Cheapness alone can never earn a `HIGH` — price is not a catalyst.**
 
 **Alerts are raised for `HIGH` and `MEDIUM` only.** `LOW` is deliberately silent: it means "nothing broke", and alerting on that trains the user to ignore the feed — which is the only way this feature fails. Alerts dedupe on `ticker + type + message` within a day (`db.add_alert`), so a re-run does not resurrect an alert the user already acknowledged.
+
+## 9. The 100x plausibility check — not a score
+
+Written by `/hunt-moat` alongside the moat judgement, and **outside the 0–34 score entirely**: it feeds no subscore, changes no `stage`, no `status`, and raises no exclusion. It is a display value plus an alert. The reasoning behind it is in [first-principles.md §5](first-principles.md).
+
+Every rubric above asks *how good is this business?*. This asks a question none of them can: *is a 100x outcome arithmetically possible at all?* A company can score 30/34 and still be unable to 100-bag, because the resulting company would not fit inside its market.
+
+| Condition for plausibility | Constant |
+|---|---|
+| `market_cap × 100 < 10 × TAM`, i.e. **`TAM > 10 × market_cap`** | `MOONSHOT_MULTIPLE = 100`, `TAM_HEADROOM_MIN = 10.0` |
+
+`tam_headroom = tam_usd / market_cap` (`config.tam_headroom()`), computed from `scores.tam_usd` and Stage 1's `universe.market_cap`. The `× 10` is deliberate headroom: the TAM itself grows over a 20-year hold, so testing the future company against *today's* market would reject everything. What survives the check is only the genuine impossibility.
+
+| Outcome | Result |
+|---|---|
+| `tam_headroom > 10.0` | 100x fits. Necessary, not sufficient. |
+| `tam_headroom ≤ 10.0` | A `tam` alert, `MEDIUM`, via `db.add_alert`. **The ticker still advances on its moat.** |
+| `tam_usd IS NULL` or `market_cap IS NULL` | No headroom, no alert. Unknown, not zero. |
+
+**A TAM alert on a Watchlist B name is not a contradiction.** The moat gate says the business is durable; the headroom says the prize is too small. Both can be true, and collapsing them into one number would destroy the information — which is why this is not a scored component.
+
+`tam_usd` is researched by Claude via WebSearch against the market the company *serves*, not the broadest category it could claim; `tam_basis` records the source so the number can be audited rather than trusted. Rules in `.claude/skills/hunt-moat/SKILL.md` §3.

@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS scores (
     key_risks         VARCHAR,
     moat_score        INTEGER,   -- 0-10, derived
 
+    -- Stage 4 TAM (researched by Claude Code; display + alert only, never scored)
+    tam_usd           BIGINT,    -- NULL = could not be established, not "zero"
+    tam_basis         VARCHAR,   -- the source and reasoning behind tam_usd
+
     total_score       INTEGER,   -- 0-34
     PRIMARY KEY (ticker, score_date)
 );
@@ -96,7 +100,7 @@ CREATE TABLE IF NOT EXISTS insider_events (
 CREATE TABLE IF NOT EXISTS alerts (
     id           BIGINT PRIMARY KEY DEFAULT nextval('seq_alerts'),
     ticker       VARCHAR NOT NULL,
-    alert_type   VARCHAR NOT NULL,   -- buy|sell|red_flag
+    alert_type   VARCHAR NOT NULL,   -- buy|sell|red_flag|tam
     severity     VARCHAR,            -- HIGH|MEDIUM|LOW
     message      VARCHAR,
     created_date DATE    NOT NULL,

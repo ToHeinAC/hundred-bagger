@@ -86,6 +86,25 @@ def _score(payload: dict, key: str, maximum: int) -> int:
     return value
 
 
+def _tam(payload: dict) -> int | None:
+    """tam_usd: whole USD, or None when no defensible figure exists.
+
+    The key is required but the value is nullable, and that asymmetry is the
+    point — "I could not establish a TAM" has to be sayable, or the answer gets
+    guessed. Unbounded above, so `_score` does not fit.
+    """
+    if "tam_usd" not in payload:
+        raise ValueError("tam_usd: required (use null if no defensible figure exists)")
+    value = payload["tam_usd"]
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"tam_usd: expected whole USD as an int, or null, got {value!r}")
+    if value <= 0:
+        raise ValueError(f"tam_usd: {value} must be positive")
+    return value
+
+
 def _text(payload: dict, key: str) -> str:
     value = payload.get(key)
     if isinstance(value, list):  # key_risks is naturally a list; store it flat
@@ -119,7 +138,32 @@ def validate(payload: dict) -> dict:
         "reinvest_runway": runway,
         "moat_notes": _text(payload, "notes"),
         "key_risks": _text(payload, "key_risks"),
+        "tam_usd": _tam(payload),
+        "tam_basis": _text(payload, "tam_basis"),
     }
+
+
+def _usd(value: float) -> str:
+    return f"${value / 1e9:.1f}B" if value >= 1e9 else f"${value / 1e6:.0f}M"
+
+
+def _tam_alert(con, ticker: str, tam_usd: int | None) -> float | None:
+    """Raise the 100x plausibility alert when the arithmetic does not work.
+
+    Never touches the score, the stage or the status — a company can have a fine
+    moat and still be unable to 100-bag, and that is the finding worth surfacing
+    (docs/first-principles.md §5). An unknown TAM raises nothing: a gap is not a
+    failure. Returns the headroom for the caller to report.
+    """
+    cap = db.market_cap(con, ticker)
+    headroom = config.tam_headroom(tam_usd, cap)
+    if headroom is not None and headroom <= config.TAM_HEADROOM_MIN:
+        db.add_alert(
+            con, ticker, "tam", "MEDIUM",
+            f"100x implausible — TAM {_usd(tam_usd)} is {headroom:.1f}x the "
+            f"{_usd(cap)} cap (need >{config.TAM_HEADROOM_MIN:.0f}x)",
+        )
+    return headroom
 
 
 def save_ticker(con, ticker: str, payload: dict) -> dict:
@@ -135,7 +179,9 @@ def save_ticker(con, ticker: str, payload: dict) -> dict:
     if passed:  # Stage 4 survivors are Watchlist B — the funnel's output
         db.set_stage(con, [ticker], 4)
         db.set_status(con, [ticker], "watchlist")
-    return {"ticker": ticker, "passed": passed, **cols}
+
+    headroom = _tam_alert(con, ticker, cols["tam_usd"])
+    return {"ticker": ticker, "passed": passed, "tam_headroom": headroom, **cols}
 
 
 # --- CLI --------------------------------------------------------------------
@@ -179,6 +225,15 @@ def _run_save(args) -> None:
         f"{r['ticker']}  moat_total {r['moat_total']}/18  durability "
         f"{r['moat_durability']}/5  -> moat_score {r['moat_score']}/10  |  {gate}"
     )
+    # Reported next to the gate, never folded into it — see docs/first-principles.md §5.
+    if r["tam_headroom"] is None:
+        print(f"{' ' * len(r['ticker'])}  TAM headroom: not established ({r['tam_basis']})")
+    else:
+        verdict = "100x implausible" if r["tam_headroom"] <= config.TAM_HEADROOM_MIN else "100x fits"
+        print(
+            f"{' ' * len(r['ticker'])}  TAM {_usd(r['tam_usd'])}  headroom "
+            f"{r['tam_headroom']:.1f}x  -> {verdict}"
+        )
 
 
 def _main() -> None:

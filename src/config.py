@@ -113,6 +113,26 @@ def moat_score(moat_total: int, moat_durability: int) -> int:
     return round(breadth + durability)
 
 
+# --- 100x plausibility (display + alert only, never scored) ------------------
+# The one first-principles constraint the code enforces: a 100x outcome has to
+# fit inside its market. For it to be arithmetically possible,
+#     market_cap * 100 < 10 * TAM   <=>   TAM > 10 * market_cap
+# The 10x is deliberate headroom — the TAM itself grows over a 20-year hold, so
+# requiring the future company to fit inside today's market would reject nearly
+# everything. This feeds no score, no stage and no status; it raises an alert.
+
+MOONSHOT_MULTIPLE = 100  # the "100" in 100-bagger
+TAM_HEADROOM_MIN = 10.0  # TAM must exceed this multiple of the current cap
+
+
+def tam_headroom(tam_usd: int | None, market_cap: int | None) -> float | None:
+    """TAM as a multiple of market cap. None when either input is unknown —
+    an unknown TAM is a gap, never a failure. See docs/first-principles.md §5."""
+    if not tam_usd or not market_cap:
+        return None
+    return tam_usd / market_cap
+
+
 # --- Stage gates ------------------------------------------------------------
 
 STAGE_2_GATE = 8  # quant_score >= 8 / 14

@@ -74,6 +74,12 @@ def test_set_stage_is_a_high_water_mark(con, sequence, expected):
     assert int(db.get_universe(con).loc[0, "stage"]) == expected
 
 
+def test_market_cap_reads_the_cap_and_returns_none_for_an_unknown_ticker(con):
+    db.replace_universe(con, [_rows(con)])
+    assert db.market_cap(con, "AAA") == 500_000_000
+    assert db.market_cap(con, "ZZZ") is None
+
+
 def test_get_universe_filters_by_stage_and_status(con):
     db.replace_universe(con, [_rows(con, "AAA"), _rows(con, "BBB")])
     db.set_stage(con, ["BBB"], 3)

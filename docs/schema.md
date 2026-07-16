@@ -124,6 +124,10 @@ Written by Claude Code via the fetch→judge→save pattern. Claude supplies the
 | `reinvest_runway` | `narrow` \| `medium` \| `wide`. |
 | `moat_notes`, `key_risks` | Free text from Claude's reading of the Business section (10-K Item 1 / 20-F Item 4). |
 | `moat_score` | 0–10, **derived**: `round(6 × moat_total/18 + 4 × moat_durability/5)` (`config.moat_score()`). This is the value that feeds `total_score`; `moat_total` (0–18) does not. Durability carries 40% — a wide but eroding moat is worth less over a ten-year hold than a narrow durable one. See [scoring.md §6](scoring.md). |
+| `tam_usd` | BIGINT, whole USD. Total addressable market, researched by Claude via WebSearch. **NULL means no defensible figure was found — unknown, not zero**, and it raises no alert. |
+| `tam_basis` | The source and date behind `tam_usd`, or why it is NULL. Always present, so the number can be audited rather than trusted. |
+
+**`tam_usd` and `tam_basis` are the only `scores` columns that feed no score.** They exist for the 100x plausibility check: `tam_usd / universe.market_cap` must exceed 10 for a 100x outcome to be arithmetically possible. The headroom is **not stored** — it is derived on read (`config.tam_headroom()`) because its denominator, `universe.market_cap`, is refreshed on every Stage 1 rebuild and a stored copy would silently go stale. `total_score` is untouched by both. See [scoring.md §9](scoring.md#9-the-100x-plausibility-check--not-a-score).
 
 ## 4. `exclusions`
 
@@ -148,7 +152,7 @@ Ship empty in Phase 1. Column semantics are documented here only where they are 
 
 **`insider_events`** (Phase 3, `/hunt-signals`) — one row per Form 4 transaction. `is_cluster_buy` marks a purchase inside the winning cluster window; `signal_strength` grades the ticker's overall signal. The surrogate key is not a natural one, so `db.replace_insider_events` **deletes the ticker's rows before inserting**: re-running `/hunt-signals` restates a ticker's Form 4 history rather than appending a second copy of it.
 
-**`alerts`** (Phase 3) — `alert_type` ∈ `buy` \| `sell` \| `red_flag`; `severity` ∈ `HIGH` \| `MEDIUM` \| `LOW`; `acknowledged` is set by the dashboard's acknowledge flow (the **one write path the UI has**) and is the basis of `status_summary()["unacked_alerts"]`. `db.add_alert` dedupes on `(ticker, alert_type, message, created_date)` — the same alert raised twice in one day is one row, so re-running a skill cannot resurrect something the user already acknowledged. The dedupe is **per day**: the same alert on a later date is a new row, by design.
+**`alerts`** (Phase 3) — `alert_type` ∈ `buy` \| `sell` \| `red_flag` \| `tam`; `severity` ∈ `HIGH` \| `MEDIUM` \| `LOW`. `tam` is the odd one out: it is raised by `/hunt-moat` (Stage 4), not by a Phase 3 skill, and it reports an arithmetic fact about the ticker rather than an event — so unlike the others it stays true until the market cap or the TAM estimate moves. `acknowledged` is set by the dashboard's acknowledge flow (the **one write path the UI has**) and is the basis of `status_summary()["unacked_alerts"]`. `db.add_alert` dedupes on `(ticker, alert_type, message, created_date)` — the same alert raised twice in one day is one row, so re-running a skill cannot resurrect something the user already acknowledged. The dedupe is **per day**: the same alert on a later date is a new row, by design.
 
 **`monitoring_log`** (Phase 3, `/hunt-monitor`) — one row per ticker per `check_date`; re-checking overwrites it. `flags` is a **JSON array of sell-trigger codes** stored as text (not a comma-separated list — unlike `scores.data_warnings`), so a code can never be confused with a substring of another. It holds mechanical trigger codes and Claude's 8-K red-flag codes in the same array. `recommended_action` ∈ `HOLD` \| `TRIM` \| `SELL` \| `REVIEW`, derived in Python (`triggers.recommend`). `max(check_date)` is the monitoring-freshness signal.
 

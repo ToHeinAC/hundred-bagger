@@ -1,14 +1,19 @@
 """Human-readable explanations for every metric shown in the dashboard.
 
-UI content only — no logic. Each string is markdown (Streamlit renders it in
+UI content — no screening logic. Each string is markdown (Streamlit renders it in
 tooltips and the glossary expander) and follows the same shape:
 **definition · ideal direction / bands · why it matters for the screen**.
 
 Numbers are kept in sync with the thresholds in ``src/config.py`` and the prose
 in ``docs/scoring.md`` — change them here when the bands there change.
+
+``format_market_cap`` lives here rather than on a page because both the Watchlist
+table and Stock Detail render the same cap, and pages must not import pages.
 """
 
 from __future__ import annotations
+
+import pandas as pd
 
 # Keyed by the DB column name used in QUANT/ROIC/MOAT_FIELDS and the Watchlist
 # column_config, so both pages look up the same text.
@@ -170,4 +175,39 @@ METRIC_HELP: dict[str, str] = {
         "scored 0, so a warned ticker's score is a **floor, not a verdict** — treat a "
         "low score here as unmeasured, not bad."
     ),
+    # --- 100x plausibility (display + alert only, never scored) --------------
+    "target_cap_100x": (
+        "**100× target cap** — what this company would be worth if the thesis worked: "
+        "market cap × 100. Not a forecast — it's the *scale of the claim*, shown so it "
+        "can be sanity-checked against the market the company sells into."
+    ),
+    "tam_usd": (
+        "**TAM** — total addressable market, researched by Claude in `/hunt-moat` from "
+        "third-party estimates of the market the company actually **serves** (not the "
+        "broadest category it could claim). Bigger is better. **This feeds no score** — "
+        "it exists only for the headroom check. Blank means no defensible figure was "
+        "found: unknown, not zero."
+    ),
+    "tam_headroom": (
+        "**TAM headroom** — TAM ÷ market cap. Must be **>10×** for a 100× outcome to be "
+        "arithmetically possible: the future company (cap × 100) has to fit inside 10× "
+        "today's market, the 10× allowing for the market growing over a 20-year hold. "
+        "At or below 10× the maths doesn't work however good the business is, and an "
+        "alert is raised. Never affects the score, stage or status."
+    ),
+    "tam_basis": (
+        "**TAM basis** — the source and reasoning behind the TAM figure, so the number "
+        "can be audited rather than trusted. Where estimates conflict, the lower "
+        "credible one is used."
+    ),
 }
+
+
+def format_market_cap(value: float | None) -> str:
+    """USD to a compact string. Shared by the Watchlist table and Stock Detail so
+    the same cap never renders two ways on two pages."""
+    if value is None or pd.isna(value):
+        return "—"
+    if value >= 1e9:
+        return f"${value / 1e9:.1f}B"
+    return f"${value / 1e6:.0f}M"

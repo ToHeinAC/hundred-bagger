@@ -21,8 +21,8 @@ import yfinance as yf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src import db  # noqa: E402
-from src.metric_help import METRIC_HELP  # noqa: E402
+from src import config, db  # noqa: E402
+from src.metric_help import METRIC_HELP, format_market_cap  # noqa: E402
 
 BUSY_MSG = "A skill is writing to the database right now. Reload in a moment."
 
@@ -77,6 +77,15 @@ MOAT_FIELDS = [
     ("Founder-led", "founder_led", _bool),
     ("Reinvest runway", "reinvest_runway", _text),
 ]
+# Not a stage's inputs — the 100x check feeds no subscore. Glossary only; the
+# metrics themselves are rendered by render_plausibility.
+TAM_FIELDS = [
+    ("Market cap", "market_cap", _text),
+    ("100x target cap", "target_cap_100x", _text),
+    ("TAM", "tam_usd", _text),
+    ("TAM headroom", "tam_headroom", _text),
+    ("TAM basis", "tam_basis", _text),
+]
 
 
 @st.cache_data(ttl=30)
@@ -117,6 +126,53 @@ def render_stage(row: pd.Series, title: str, subscore: str, fields: list[tuple],
     render_metrics(row, fields)
 
 
+def _target_cap(market_cap) -> float | None:
+    """What the company would be worth if the thesis worked. Not a forecast — the
+    scale of the claim, shown so it can be checked against the market's size."""
+    return None if pd.isna(market_cap) else market_cap * config.MOONSHOT_MULTIPLE
+
+
+def render_plausibility(row: pd.Series) -> None:
+    """The 100x check — deliberately its own section, not part of the moat grid.
+
+    TAM is not an input to any subscore, and MOAT_FIELDS is documented as the
+    inputs to one. Keeping it separate is what makes "this never touches the
+    score" visible on the page rather than only true in the code.
+    """
+    st.subheader("100x plausibility")
+    if pd.isna(row["moat_score"]):
+        st.info("Not yet researched — run `/hunt-moat`.")
+        return
+
+    headroom = config.tam_headroom(
+        None if pd.isna(row["tam_usd"]) else int(row["tam_usd"]),
+        None if pd.isna(row["market_cap"]) else int(row["market_cap"]),
+    )
+    st.caption("Never part of the score — a great business can still be a poor 100x bet.")
+
+    cols = st.columns(4)  # 4-wide to match the stage grids above
+    cols[0].metric("TAM", format_market_cap(None if pd.isna(row["tam_usd"]) else row["tam_usd"]),
+                   help=METRIC_HELP["tam_usd"])
+    cols[1].metric(f"TAM headroom (need >{config.TAM_HEADROOM_MIN:.0f}x)",
+                   "—" if headroom is None else f"{headroom:.1f}x",
+                   help=METRIC_HELP["tam_headroom"])
+
+    if headroom is None:
+        st.info("**TAM not established.** Unknown, not zero — no verdict either way.")
+    elif headroom <= config.TAM_HEADROOM_MIN:
+        st.error(
+            f"**100x implausible.** At {format_market_cap(_target_cap(row['market_cap']))} this "
+            f"company would be worth {config.TAM_HEADROOM_MIN / headroom:.1f}x more than 10x its "
+            "entire market. The arithmetic does not work, whatever the moat score says."
+        )
+    else:
+        st.success(
+            f"**100x fits.** The market is {headroom:.1f}x the current cap, so a 100x outcome "
+            "lands inside 10x today's TAM — a necessary condition, not a sufficient one."
+        )
+    st.caption(f"**Basis:** {_text(row['tam_basis'])}")
+
+
 def render_caveats(row: pd.Series, exclusions: pd.DataFrame) -> None:
     if not pd.isna(row["data_warnings"]) and row["data_warnings"]:
         st.warning(
@@ -151,11 +207,17 @@ ticker = st.sidebar.selectbox("Ticker", ranked["ticker"].tolist())
 row = ranked[ranked["ticker"] == ticker].iloc[0]
 
 st.header(f"{ticker} — {_text(row['name'])}")
-head = st.columns(4)
+head = st.columns(6)
 head[0].metric("Total score", _int(row["total_score"]), help=METRIC_HELP["total_score"])
 head[1].metric("Stage", _int(row["stage"]), help=METRIC_HELP["stage"])
 head[2].metric("Status", _text(row["status"]), help=METRIC_HELP["status"])
 head[3].metric("Sector", _text(row["sector"]), help=METRIC_HELP["sector"])
+head[4].metric("Market cap", format_market_cap(row["market_cap"]), help=METRIC_HELP["market_cap"])
+head[5].metric(
+    "100x target cap",
+    format_market_cap(_target_cap(row["market_cap"])),
+    help=METRIC_HELP["target_cap_100x"],
+)
 
 render_caveats(row, load_exclusions(ticker))
 
@@ -177,11 +239,14 @@ if not pd.isna(row["moat_score"]):
     st.markdown("**Key risks**")
     st.markdown(_text(row["key_risks"]))
 
+render_plausibility(row)
+
 with st.expander("Metric glossary"):
     for title, fields in [
         ("Stage 2 — Quant", QUANT_FIELDS),
         ("Stage 3 — ROIC", ROIC_FIELDS),
         ("Stage 4 — Moat", MOAT_FIELDS),
+        ("100x plausibility (not scored)", TAM_FIELDS),
     ]:
         st.markdown(f"**{title}**")
         for label, name, _fmt in fields:

@@ -30,7 +30,7 @@ entry signals and position monitoring on top of it — **live shakedown done
 | Position monitoring (check/save) | `src/monitor.py` | Done — judgement is Claude's |
 | Dashboard | `src/app.py`, `src/pages/` | Done — Pipeline, Watchlist, Stock Detail, Alerts |
 | Skills | `.claude/skills/hunt-{universe,score,roic,moat,signals,monitor,status}/` | Done |
-| Tests | `tests/` | Done — 177, network mocked, green offline |
+| Tests | `tests/` | Done — 186, network mocked, green offline |
 | Portfolio | `src/portfolio.py` | **Not started** (Phase 4) |
 
 `total_score` (0–34) is now actually reachable: `quant_score` (0–14) +
@@ -39,6 +39,14 @@ entry signals and position monitoring on top of it — **live shakedown done
 Entry signals and sell triggers are **not** part of that score — they change no
 ticker's `stage` or `status`. They write `insider_events`, `monitoring_log` and
 `alerts`, and the Alerts page is where they surface.
+
+**The 100x plausibility check is not part of it either.** `/hunt-moat` researches
+each survivor's TAM (`scores.tam_usd`, WebSearch) and raises a `tam` alert when
+`tam_usd ≤ 10 × universe.market_cap` — the point at which a 100x market cap could
+not fit inside ten times the company's own market. It feeds no score and no gate:
+a name can clear Watchlist B on its moat and still be told its 100x does not add
+up. See [docs/scoring.md §9](docs/scoring.md#9-the-100x-plausibility-check--not-a-score)
+and [docs/first-principles.md](docs/first-principles.md).
 
 ---
 
@@ -333,9 +341,17 @@ strings are never interpolated into SQL.
   schema safe to evolve**, and splitting the file to satisfy a line count would
   trade a real guarantee for a cosmetic one. The tradeoff is the file's size; the
   alternative was two files that each half-own the schema.
-- **The test suite is at 177 of the 200-test budget**, leaving ~23 for Phase 4's
-  portfolio work. Merging or dropping tests may be needed rather than growing past
+- **The test suite is at 186 of the 200-test budget**, leaving 14 for Phase 4's
+  portfolio work. Merging or dropping tests will be needed rather than growing past
   the cap.
+- **`src/moat.py` is 261 lines**, over the PRD's ~200-line bar, after the TAM check
+  landed on top of the moat judgement. Kept whole: the two halves share `validate`
+  and one save path, and splitting them would put the payload contract in two files.
+  `src/signals.py` (236) and `src/xbrl.py` (221) are over the same bar.
+- **A `tam` alert never clears itself.** Unlike a buy signal it states an arithmetic
+  fact, not an event, so it stays true until the cap or the TAM estimate moves. It
+  will re-raise on any re-run of `/hunt-moat` on a later date (per-day dedupe, see
+  below). Acknowledging it is the intended response.
 - **The funnel is not populated** — see the note in §4. Stage 2 was only ever run
   over a 40-ticker sample.
 - **ROIC coverage is unmeasured in practice.** The ≥80% success criterion needs a
@@ -382,5 +398,6 @@ belongs with it. Filling the `portfolio` table is what turns `/hunt-monitor` fro
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | The Python/Claude seam; fetch→judge→save; invariants |
 | [docs/schema.md](docs/schema.md) | Full DDL, column semantics, what's populated when |
-| [docs/scoring.md](docs/scoring.md) | Quant, ROIC, and moat rubrics; auto-exclusions; gates |
+| [docs/scoring.md](docs/scoring.md) | Quant, ROIC, and moat rubrics; auto-exclusions; gates; the 100x check |
 | [docs/data-sources.md](docs/data-sources.md) | EDGAR contract, rate limits, tag-coverage traps |
+| [docs/first-principles.md](docs/first-principles.md) | How to read a score: deconstruction, which thresholds are convention, the 100x rule. Read by `/hunt-score`, `/hunt-roic`, `/hunt-moat` |

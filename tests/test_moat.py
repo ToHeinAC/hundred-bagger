@@ -7,6 +7,7 @@ columns with the right derived numbers.
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 from src import config, db, moat
@@ -23,13 +24,18 @@ VALID = {
     "reinvest_runway": "medium",
     "notes": "Embedded in customer workflows; 95% stated retention.",
     "key_risks": ["Top ten clients are 38% of revenue"],
+    "tam_usd": 40_000_000_000,  # 40x the fixture's $1B cap — clears the headroom test
+    "tam_basis": "US claims-management services, ~$40B (Grand View Research, 2025).",
 }
+
+CAP = 1_000_000_000
 
 
 @pytest.fixture
 def universe(con):
-    """moat.save_ticker moves a ticker through `universe`, so it has to exist."""
-    db.replace_universe(con, [{"ticker": "CRVL", "name": "CorVel"}])
+    """moat.save_ticker moves a ticker through `universe`, so it has to exist.
+    market_cap is the TAM headroom's denominator — the input no filing supplies."""
+    db.replace_universe(con, [{"ticker": "CRVL", "name": "CorVel", "market_cap": CAP}])
     db.set_stage(con, ["CRVL"], 3)
     return con
 
@@ -106,6 +112,9 @@ def test_below_total_gate_does_not_advance(universe):
         ({"founder_led": "true"}, "expected true or false"),
         ({"reinvest_runway": "enormous"}, "reinvest_runway"),
         ({"notes": ""}, "non-empty string"),
+        ({"tam_usd": -1}, "must be positive"),
+        ({"tam_usd": "40B"}, "whole USD"),
+        ({"tam_basis": ""}, "non-empty string"),
     ],
 )
 def test_malformed_payload_raises(payload, expected):
@@ -113,10 +122,61 @@ def test_malformed_payload_raises(payload, expected):
         moat.validate({**VALID, **payload})
 
 
-def test_missing_dimension_raises():
-    payload = {k: v for k, v in VALID.items() if k != "network"}
-    with pytest.raises(ValueError, match="network"):
+@pytest.mark.parametrize("missing", ["network", "tam_usd"])
+def test_missing_required_key_raises(missing):
+    payload = {k: v for k, v in VALID.items() if k != missing}
+    with pytest.raises(ValueError, match=missing):
         moat.validate(payload)
+
+
+# --- the 100x plausibility check: display + alert, never a score -------------
+
+
+def test_tam_below_headroom_raises_an_alert_without_touching_the_score(universe):
+    """$3B TAM on a $1B cap = 3x, under the 10x floor: a 100x CRVL would be worth
+    $100B in a $3B market. The moat still passes — the two are not in conflict."""
+    result = moat.save_ticker(universe, "CRVL", {**VALID, "tam_usd": 3_000_000_000})
+    row = saved(universe)
+
+    alert = db.alerts(universe).iloc[0]
+    assert (alert["alert_type"], alert["ticker"]) == ("tam", "CRVL")
+    assert "100x implausible" in alert["message"]
+    assert result["tam_headroom"] == 3.0
+    # The alert changes nothing about the funnel's verdict on the business.
+    assert result["passed"] is True
+    assert (row["stage"], row["status"]) == (4, "watchlist")
+    assert row["total_score"] == row["moat_score"] == 6
+
+
+def test_tam_above_headroom_raises_no_alert(universe):
+    moat.save_ticker(universe, "CRVL", VALID)  # 40x
+    assert db.alerts(universe).empty
+    assert saved(universe)["tam_usd"] == 40_000_000_000
+
+
+def test_headroom_exactly_at_the_floor_alerts(universe):
+    """The rule is TAM > 10x, so 10.0x itself fails."""
+    moat.save_ticker(universe, "CRVL", {**VALID, "tam_usd": CAP * 10})
+    assert len(db.alerts(universe)) == 1
+
+
+def test_unknown_tam_is_a_gap_not_a_failure(universe):
+    """A null TAM must be sayable, or the answer gets guessed. It alerts nothing."""
+    result = moat.save_ticker(
+        universe, "CRVL",
+        {**VALID, "tam_usd": None, "tam_basis": "No credible third-party sizing found."},
+    )
+    assert result["tam_headroom"] is None
+    assert db.alerts(universe).empty
+    assert pd.isna(saved(universe)["tam_usd"])
+
+
+def test_unknown_market_cap_alerts_nothing(con):
+    """Stage 1 supplies the denominator. Without it there is no verdict to give."""
+    db.replace_universe(con, [{"ticker": "NOCAP", "name": "No Cap", "market_cap": None}])
+    result = moat.save_ticker(con, "NOCAP", {**VALID, "tam_usd": 1_000_000})
+    assert result["tam_headroom"] is None
+    assert db.alerts(con).empty
 
 
 # --- fetch ------------------------------------------------------------------

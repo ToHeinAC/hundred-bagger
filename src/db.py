@@ -86,6 +86,13 @@ def get_universe(con, stage: int | None = None, status: str | None = None) -> pd
     return con.execute(sql + " ORDER BY ticker", params).df()
 
 
+def market_cap(con, ticker: str) -> int | None:
+    """Stage 1's cap for one ticker, or None if unknown. Like `triggers.distress`,
+    `moat.save_ticker` needs the one input a filing cannot supply."""
+    row = con.execute("SELECT market_cap FROM universe WHERE ticker = ?", [ticker]).fetchone()
+    return row[0] if row else None
+
+
 def set_stage(con, tickers: list[str], stage: int) -> None:
     """Advance the high-water mark. Never lowers an existing stage."""
     for t in tickers:

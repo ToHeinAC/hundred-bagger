@@ -75,8 +75,25 @@ Four numbers matter, and you should comment on each:
 - **Excluded** — failed `ASSET_BLOAT` or `DISTRESS_ZONE`, with the number recorded.
   Reversible, like every exclusion.
 
+## Before you report
+
+Read `docs/first-principles.md` (§6, Stage 3) and apply it to the **output**, not the
+arithmetic — the script still owns every number:
+
+- ROIC is the closest this funnel gets to a fundamental truth; Altman Z and Piotroski F
+  are useful conventions built on large industrials. Do not present them as equals.
+- Coverage is the thing most likely to be lying. Report it **before** the ranking.
+- A `roic_score` of 0 from `XBRL_INCOMPLETE` is unmeasured, not bad.
+
 ## Then
 
-Report the histogram shape, the coverage percentage, and the advance count. Stage 3
-survivors are the input to `/hunt-moat`, which is where judgement enters the pipeline
-— offer it as the next step.
+Report the histogram shape, the coverage percentage, and the advance count.
+
+Also report the **100x target market cap** (`market_cap × 100`) for the top names — the
+scale of the claim the funnel is making about them. It is display only: no TAM is
+researched here and no verdict is available yet. Say plainly that whether that number
+fits inside the company's market is tested at Stage 4, which raises a 🎯 TAM alert when
+it does not.
+
+Stage 3 survivors are the input to `/hunt-moat`, which is where judgement enters the
+pipeline — offer it as the next step.

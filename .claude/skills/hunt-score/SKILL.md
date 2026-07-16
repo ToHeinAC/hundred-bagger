@@ -55,6 +55,16 @@ Three numbers matter, and you should comment on each:
 **Never present a score as a verdict on a company.** It is a verdict on the
 arithmetic Yahoo happened to have.
 
+## Before you report
+
+Read `docs/first-principles.md` (§6, Stage 2) and apply it to the **output**, not
+the arithmetic — the script still owns every number:
+
+- Which of these bands are necessary, and which are convention? 8/14 is a choice.
+- Is a low score the company, or the data Yahoo happened to have?
+- What does the rubric not capture? Say it out loud rather than letting the
+  ranking imply it does not exist.
+
 ## Then
 
 Report the histogram shape and the advance count. Suggest the user open the

@@ -16,7 +16,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src import db  # noqa: E402
-from src.metric_help import METRIC_HELP  # noqa: E402
+from src.metric_help import METRIC_HELP, format_market_cap  # noqa: E402
 
 BUSY_MSG = "A skill is writing to the database right now. Reload in a moment."
 
@@ -32,14 +32,6 @@ st.set_page_config(page_title="Watchlist", page_icon="📈", layout="wide")
 def load_scores() -> pd.DataFrame:
     with db.connect(read_only=True) as con:
         return db.latest_scores(con)[COLUMNS]
-
-
-def format_market_cap(value: float | None) -> str:
-    if pd.isna(value):
-        return "—"
-    if value >= 1e9:
-        return f"${value / 1e9:.1f}B"
-    return f"${value / 1e6:.0f}M"
 
 
 def apply_filters(scores: pd.DataFrame) -> pd.DataFrame:

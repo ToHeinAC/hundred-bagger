@@ -39,7 +39,7 @@ In Claude Code, invoke the skills:
 | `/hunt-universe` | Stage 1 — build the candidate pool from hard filters | 5–10 min |
 | `/hunt-score` | Stage 2 — score 0–14 on fundamentals, auto-exclude | 15–30 min |
 | `/hunt-roic` | Stage 3 — ROIC, Piotroski F, Altman Z from SEC XBRL | 30–60 min |
-| `/hunt-moat` | Stage 4 — *you* read each 10-K Item 1 and score the moat | 10–30 min |
+| `/hunt-moat` | Stage 4 — *you* read each 10-K Item 1, score the moat, and research the TAM | 20–45 min |
 | `/hunt-signals` | Entry signals — insider cluster buys, valuation gates, price zone | 2–5 min |
 | `/hunt-monitor` | Sell triggers on open positions; *you* read the 8-Ks for red flags | 5–15 min |
 | `/hunt-status` | Pipeline summary and data freshness (no network) | < 1 min |
@@ -70,10 +70,11 @@ uv run streamlit run src/app.py --server.port 8501
 ```
 
 Pipeline Overview (funnel + exclusion breakdown), Watchlist (ranked, filterable),
-Stock Detail (price chart, every metric grouped by stage, moat notes, risks —
-enough to answer "why is this on my watchlist?" without re-running anything), and
-Alerts (buy signals, sell triggers, red flags, with an acknowledge flow). It opens
-the database **read-only** everywhere except the one acknowledge write.
+Stock Detail (price chart, market cap, every metric grouped by stage, moat notes,
+risks, and the 100x plausibility check — enough to answer "why is this on my
+watchlist?" without re-running anything), and Alerts (buy signals, sell triggers,
+red flags, TAM alerts, with an acknowledge flow). It opens the database
+**read-only** everywhere except the one acknowledge write.
 
 Every module is also a CLI, which is exactly what the skills shell out to:
 
@@ -151,8 +152,9 @@ All network calls are mocked; the suite is green with no internet.
 | [IMPLEMENTATION.md](IMPLEMENTATION.md) | Current state |
 | [docs/architecture.md](docs/architecture.md) | The Python/Claude seam |
 | [docs/schema.md](docs/schema.md) | DuckDB DDL and column semantics |
-| [docs/scoring.md](docs/scoring.md) | Rubrics, exclusions, stage gates |
+| [docs/scoring.md](docs/scoring.md) | Rubrics, exclusions, stage gates, the 100x check |
 | [docs/data-sources.md](docs/data-sources.md) | EDGAR contract, rate limits, tag-coverage traps |
+| [docs/first-principles.md](docs/first-principles.md) | How to read a score, and why 100x needs a market to fit into |
 | [AGENTS.md](AGENTS.md) | Rules for AI coding tools in this repo |
 
 ## Licence

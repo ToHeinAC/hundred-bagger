@@ -23,7 +23,7 @@ from src import db  # noqa: E402
 BUSY_MSG = "A skill is writing to the database right now. Reload in a moment."
 
 SEVERITY_ICON = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
-TYPE_LABEL = {"buy": "🟢 Buy", "sell": "🔻 Sell", "red_flag": "🚩 Red flag"}
+TYPE_LABEL = {"buy": "🟢 Buy", "sell": "🔻 Sell", "red_flag": "🚩 Red flag", "tam": "🎯 TAM"}
 
 st.set_page_config(page_title="Alerts", page_icon="🔔", layout="wide")
 
@@ -85,7 +85,8 @@ def render(feed: pd.DataFrame, *, ackable: bool) -> None:
 
 st.title("Alerts")
 st.caption(
-    "Buy signals come from `/hunt-signals`; sell triggers and red flags from `/hunt-monitor`. "
+    "Buy signals come from `/hunt-signals`; sell triggers and red flags from `/hunt-monitor`; "
+    "🎯 TAM alerts from `/hunt-moat`, where the 100x arithmetic does not fit the market. "
     "Acknowledging only records that you have seen an alert — it never changes screening state."
 )
 
@@ -106,9 +107,9 @@ if feed.empty:
     st.stop()
 
 open_alerts = feed[~feed["acknowledged"]]
-cols = st.columns(4)
+cols = st.columns(5)
 cols[0].metric("Unacknowledged", len(open_alerts))
-for col, kind in zip(cols[1:], ("buy", "sell", "red_flag")):
+for col, kind in zip(cols[1:], ("buy", "sell", "red_flag", "tam")):
     col.metric(TYPE_LABEL[kind], len(open_alerts[open_alerts["alert_type"] == kind]))
 
 st.subheader("Open")
