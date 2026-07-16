@@ -133,12 +133,27 @@ to `data/moat_input/AMPH.txt`; `moat save` validated the JSON, summed
 ticker to Stage 4 + `status='watchlist'`. Out-of-range input is rejected with a
 precise `ValueError`.
 
-> **Funnel now populated (2026-07-15).** A full run at the current `$75M–$2B` band
-> carried the funnel end to end: 985 universe → 106 Stage 2 (≥8/14) → 31 Stage 3
-> (≥6/10) → **18-name Watchlist B** (Stage 4 moat gate: `moat_total ≥ 6 AND
-> durability ≥ 3`). Stage 3 ROIC coverage was **68%** (72/106) — below the ≥80%
-> target, so the Stage 3 ranking is less complete than a clean run: small-filer
-> XBRL gaps, widened by the lower cap floor. Flagged, not hidden.
+> **Full rebuild (2026-07-16), with the 100x check live.** The database was deleted
+> and rebuilt to add `scores.tam_usd`/`tam_basis`, then the whole funnel re-run:
+> 984 universe → 106 Stage 2 (≥8/14) → 40 Stage 3 (≥6/10) → **13-name Watchlist B**.
+> 38 of 40 Stage 3 survivors were judged; `INVA` and `ISSC` could not be (see §6).
+>
+> **Stage 3 ROIC coverage was 93%** (99/106), clearing the ≥80% criterion — the
+> previous run's 68% is superseded. `fetch failures 0`.
+>
+> **The 100x check earned its place on the first live run: 15 TAM alerts, and 6 of
+> the 13 Watchlist B names fail the headroom test** — ELMD (7.6x), IRMD (0.3x),
+> NSSC (7.4x), EVER (8.9x), ITRN (2.8x), TRAK (1.6x), EPAC (1.0x), TCMD (5.7x).
+> These are good businesses the funnel correctly surfaced and whose markets cannot
+> hold a 100x outcome; nothing else in the pipeline would have caught it. IRMD is
+> the cleanest case: a founder-led sole supplier of MRI-compatible IV pumps for 20
+> years, 50.3% ROIC, whose $1.20B cap already exceeds its ~$360M market by 3x.
+> `ESEA` and `GSL` correctly recorded `tam_usd IS NULL` — containership lessors,
+> where no charter-market figure exists at the right scope. No TAM was guessed.
+>
+> Only **KARO** pairs a Stage 4 moat with a `wide` reinvest runway and passing
+> headroom (14.5x). `RDVT` (34.6x), `RVLV` (420.6x) and `AMPH` (14.7x) also clear
+> both; `XPEL` clears at 10.1x, i.e. by 1% — read its `tam_basis`, not the verdict.
 
 **Phase 3** — live shakedown on AMPH, 2026-07-14, no populated funnel needed
 (`--ticker` runs standalone).
@@ -352,10 +367,21 @@ strings are never interpolated into SQL.
   fact, not an event, so it stays true until the cap or the TAM estimate moves. It
   will re-raise on any re-run of `/hunt-moat` on a later date (per-day dedupe, see
   below). Acknowledging it is the intended response.
-- **The funnel is not populated** — see the note in §4. Stage 2 was only ever run
-  over a 40-ticker sample.
-- **ROIC coverage is unmeasured in practice.** The ≥80% success criterion needs a
-  real Stage 2 cohort to test against; n=2 says nothing.
+- **`moat fetch` cannot read an amended annual report.** `fetch_ticker` takes
+  `get_filings(form=["10-K","20-F"]).latest()`, which returns a `10-K/A` when one
+  exists — and an amendment carries no Business section, so `.business` is empty
+  and the fetch raises. `INVA` and `ISSC` were lost to this in the 2026-07-16 run
+  and are the only Stage 3 survivors with no moat judgement. The fix is to fall
+  back to the latest unamended 10-K/20-F rather than accept whatever `latest()`
+  returns; not done, because it surfaced mid-run.
+- **Watchlist B is 13 names, below the PRD's 20–50 target.** The moat gate is
+  doing most of the filtering: of 38 judged, 25 scored `moat_total ≤ 7`.
+- **6 of 13 Watchlist B names fail the 100x check, which is a question about the
+  screen, not the companies.** The `$75M–$2B` universe band plus a moat gate
+  selects hard for niche-monopoly businesses — the exact profile whose market is
+  too small to hold a 100x outcome (IRMD, EPAC, ELMD, ITRN, TCMD). Worth asking
+  whether the band or the sector filter is systematically finding good businesses
+  with capped prizes. See [docs/first-principles.md §2](docs/first-principles.md).
 - **`revenue_cagr_3y` is a CAGR over whatever periods yfinance returned**, usually
   4 annual periods (a true 3y CAGR) but sometimes fewer. The column name promises
   more precision than the data guarantees. (Stage 3's XBRL series does not have
