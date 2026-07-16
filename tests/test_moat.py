@@ -195,7 +195,24 @@ class FakeFiling:
 def _fake_company(business: str):
     filing = FakeFiling(business)
     filings = type("Filings", (), {"latest": lambda self: filing})()
-    return lambda ticker: type("Company", (), {"get_filings": lambda self, form: filings})()
+    return lambda ticker: type(
+        "Company", (), {"get_filings": lambda self, form, amendments=True: filings}
+    )()
+
+
+def _fake_company_with_amendment(business: str):
+    """EDGAR hands back the 10-K/A first when one exists, and an amendment carries
+    no Business section — so this fake returns the empty amendment to a caller that
+    accepts amendments, and the real 10-K to one that excludes them."""
+    amendment = FakeFiling("")
+    amendment.form = "10-K/A"
+    original = FakeFiling(business)
+
+    def get_filings(self, form, amendments=True):
+        latest = amendment if amendments else original
+        return type("Filings", (), {"latest": lambda self: latest})()
+
+    return lambda ticker: type("Company", (), {"get_filings": get_filings})()
 
 
 def test_fetch_writes_item1_with_a_header(monkeypatch, tmp_path):
@@ -213,6 +230,15 @@ def test_fetch_truncates_a_long_item1_and_says_so(monkeypatch, tmp_path):
     text = moat.fetch_ticker("CRVL", tmp_path).read_text()
     assert f"first {moat.ITEM1_CHAR_CAP:,} of" in text
     assert text.count("x") == moat.ITEM1_CHAR_CAP
+
+
+def test_fetch_falls_back_to_the_unamended_annual_report(monkeypatch, tmp_path):
+    """A 10-K/A is the newest filing for some tickers and has no Business section.
+    Taking `latest()` blindly loses the company (INVA and ISSC, 2026-07-16 run)."""
+    monkeypatch.setattr(moat, "Company", _fake_company_with_amendment("We sell claims software."))
+    text = moat.fetch_ticker("INVA", tmp_path).read_text()
+    assert "# form:         10-K\n" in text  # the 10-K, not the 10-K/A
+    assert text.endswith("We sell claims software.")
 
 
 def test_fetch_raises_when_item1_is_empty(monkeypatch, tmp_path):
@@ -237,7 +263,9 @@ def test_fetch_reads_the_20f_business_section_for_a_foreign_filer(monkeypatch, t
     filings = type("Filings", (), {"latest": lambda self: filing})()
     monkeypatch.setattr(
         moat, "Company",
-        lambda ticker: type("Company", (), {"get_filings": lambda self, form: filings})(),
+        lambda ticker: type(
+            "Company", (), {"get_filings": lambda self, form, amendments=True: filings}
+        )(),
     )
     text = moat.fetch_ticker("GRVY", tmp_path).read_text()
     assert "# form:         20-F" in text

@@ -30,7 +30,7 @@ entry signals and position monitoring on top of it — **live shakedown done
 | Position monitoring (check/save) | `src/monitor.py` | Done — judgement is Claude's |
 | Dashboard | `src/app.py`, `src/pages/` | Done — Pipeline, Watchlist, Stock Detail, Alerts |
 | Skills | `.claude/skills/hunt-{universe,score,roic,moat,signals,monitor,status}/` | Done |
-| Tests | `tests/` | Done — 186, network mocked, green offline |
+| Tests | `tests/` | Done — 187, network mocked, green offline |
 | Portfolio | `src/portfolio.py` | **Not started** (Phase 4) |
 
 `total_score` (0–34) is now actually reachable: `quant_score` (0–14) +
@@ -135,14 +135,14 @@ precise `ValueError`.
 
 > **Full rebuild (2026-07-16), with the 100x check live.** The database was deleted
 > and rebuilt to add `scores.tam_usd`/`tam_basis`, then the whole funnel re-run:
-> 984 universe → 106 Stage 2 (≥8/14) → 40 Stage 3 (≥6/10) → **13-name Watchlist B**.
-> 38 of 40 Stage 3 survivors were judged; `INVA` and `ISSC` could not be (see §6).
+> 984 universe → 106 Stage 2 (≥8/14) → 40 Stage 3 (≥6/10) → **14-name Watchlist B**,
+> with all 40 Stage 3 survivors judged.
 >
 > **Stage 3 ROIC coverage was 93%** (99/106), clearing the ≥80% criterion — the
 > previous run's 68% is superseded. `fetch failures 0`.
 >
-> **The 100x check earned its place on the first live run: 15 TAM alerts, and 6 of
-> the 13 Watchlist B names fail the headroom test** — ELMD (7.6x), IRMD (0.3x),
+> **The 100x check earned its place on the first live run: 16 TAM alerts, and 8 of
+> the 14 Watchlist B names fail the headroom test** — ELMD (7.6x), IRMD (0.3x),
 > NSSC (7.4x), EVER (8.9x), ITRN (2.8x), TRAK (1.6x), EPAC (1.0x), TCMD (5.7x).
 > These are good businesses the funnel correctly surfaced and whose markets cannot
 > hold a 100x outcome; nothing else in the pipeline would have caught it. IRMD is
@@ -151,9 +151,12 @@ precise `ValueError`.
 > `ESEA` and `GSL` correctly recorded `tam_usd IS NULL` — containership lessors,
 > where no charter-market figure exists at the right scope. No TAM was guessed.
 >
-> Only **KARO** pairs a Stage 4 moat with a `wide` reinvest runway and passing
-> headroom (14.5x). `RDVT` (34.6x), `RVLV` (420.6x) and `AMPH` (14.7x) also clear
-> both; `XPEL` clears at 10.1x, i.e. by 1% — read its `tam_basis`, not the verdict.
+> Six names clear both gates: **KARO** (14.5x) is the only one that also carries a
+> `wide` reinvest runway; then `RVLV` (420.6x), `RDVT` (34.6x), `ISSC` (14.9x),
+> `AMPH` (14.7x) and `XPEL` — which clears at 10.1x, i.e. by 1%. Several verdicts
+> turn on market definition (`XPEL`, `NSSC`, `TRAK`, `ISSC`, `VMD`, `SPOK`); each
+> `tam_basis` records the alternative figure and which way it would go. Read the
+> basis, not just the verdict.
 
 **Phase 3** — live shakedown on AMPH, 2026-07-14, no populated funnel needed
 (`--ticker` runs standalone).
@@ -223,6 +226,13 @@ private issuer:
   ROIC's numerator and denominator in one unit, so the ratio is currency-free.
 - **Stage 4 (`moat.py`).** Fetches `10-K` **or** `20-F`; the Business narrative is
   Item 1 in a 10-K and Item 4 in a 20-F, and edgartools exposes both as `.business`.
+  **`amendments=False` is load-bearing** — edgartools defaults it to `True`, so
+  `get_filings(form=["10-K","20-F"]).latest()` hands back a `10-K/A` whenever one
+  exists. An amendment restates only the items it changes, so `.business` is empty
+  and the ticker is silently lost. This cost `INVA` and `ISSC` in the first
+  2026-07-16 run (both had a `10-K/A` newer than their real 10-K); fixed and
+  covered by `test_fetch_falls_back_to_the_unamended_annual_report`. The failure
+  mode is quiet: it looks like a fetch error, not a wrong answer.
 - **Signals (`signals.py`).** Foreign private issuers are exempt from Section 16,
   so they file no Form 4. An empty insider result for one is labelled *"insider
   data N/A (foreign issuer)"* so it is never read as "no insider bought".
@@ -356,7 +366,7 @@ strings are never interpolated into SQL.
   schema safe to evolve**, and splitting the file to satisfy a line count would
   trade a real guarantee for a cosmetic one. The tradeoff is the file's size; the
   alternative was two files that each half-own the schema.
-- **The test suite is at 186 of the 200-test budget**, leaving 14 for Phase 4's
+- **The test suite is at 187 of the 200-test budget**, leaving 13 for Phase 4's
   portfolio work. Merging or dropping tests will be needed rather than growing past
   the cap.
 - **`src/moat.py` is 261 lines**, over the PRD's ~200-line bar, after the TAM check
@@ -367,21 +377,15 @@ strings are never interpolated into SQL.
   fact, not an event, so it stays true until the cap or the TAM estimate moves. It
   will re-raise on any re-run of `/hunt-moat` on a later date (per-day dedupe, see
   below). Acknowledging it is the intended response.
-- **`moat fetch` cannot read an amended annual report.** `fetch_ticker` takes
-  `get_filings(form=["10-K","20-F"]).latest()`, which returns a `10-K/A` when one
-  exists — and an amendment carries no Business section, so `.business` is empty
-  and the fetch raises. `INVA` and `ISSC` were lost to this in the 2026-07-16 run
-  and are the only Stage 3 survivors with no moat judgement. The fix is to fall
-  back to the latest unamended 10-K/20-F rather than accept whatever `latest()`
-  returns; not done, because it surfaced mid-run.
-- **Watchlist B is 13 names, below the PRD's 20–50 target.** The moat gate is
-  doing most of the filtering: of 38 judged, 25 scored `moat_total ≤ 7`.
-- **6 of 13 Watchlist B names fail the 100x check, which is a question about the
+- **Watchlist B is 14 names, below the PRD's 20–50 target.** The moat gate is
+  doing most of the filtering: of 40 judged, 26 scored `moat_total ≤ 7`.
+- **8 of 14 Watchlist B names fail the 100x check, which is a question about the
   screen, not the companies.** The `$75M–$2B` universe band plus a moat gate
   selects hard for niche-monopoly businesses — the exact profile whose market is
-  too small to hold a 100x outcome (IRMD, EPAC, ELMD, ITRN, TCMD). Worth asking
-  whether the band or the sector filter is systematically finding good businesses
-  with capped prizes. See [docs/first-principles.md §2](docs/first-principles.md).
+  too small to hold a 100x outcome (IRMD, EPAC, ELMD, ITRN, TCMD, TRAK, NSSC,
+  EVER). Worth asking whether the band or the sector filter is systematically
+  finding good businesses with capped prizes. See
+  [docs/first-principles.md §2](docs/first-principles.md).
 - **`revenue_cagr_3y` is a CAGR over whatever periods yfinance returned**, usually
   4 annual periods (a true 3y CAGR) but sometimes fewer. The column name promises
   more precision than the data guarantees. (Stage 3's XBRL series does not have

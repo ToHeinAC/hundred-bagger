@@ -54,12 +54,17 @@ def fetch_ticker(ticker: str, out_dir: Path) -> Path:
     US-listed ADR among them — file a 20-F (Item 4, Information on the Company).
     Same qualitative narrative, and edgar exposes both as `.business`, so take
     whichever the company files.
+
+    `amendments=False` is load-bearing: edgar defaults it to True, so a company
+    that has filed a 10-K/A gets the amendment back from `latest()` — and an
+    amendment restates only the items it changes, so `.business` is empty and the
+    ticker is lost. Ask for unamended annual reports and the real Item 1 returns.
     """
     _throttle()
-    filings = Company(ticker).get_filings(form=["10-K", "20-F"])
+    filings = Company(ticker).get_filings(form=["10-K", "20-F"], amendments=False)
     filing = filings.latest()
     if filing is None:
-        raise ValueError("no 10-K or 20-F on file")
+        raise ValueError("no unamended 10-K or 20-F on file")
 
     _throttle()
     text = (filing.obj().business or "").strip()
