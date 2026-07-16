@@ -123,13 +123,24 @@ caught — see [data-sources.md](data-sources.md#2-xbrl-tag-coverage-is-uneven--
 
 ## Streamlit read-only discipline
 
-Every dashboard page opens DuckDB with `read_only=True`. Through Phase 2 there is
-still no write path from the UI at all; the Portfolio page (Phase 4) will be the
-sole exception. A dashboard bug can therefore never corrupt screening state.
+Every dashboard page opens DuckDB with `read_only=True`, so a dashboard bug can
+never corrupt screening state. There are exactly **two** exceptions, and neither
+writes screening state — that stays the skills' alone. Both record only facts the
+user is the author of:
 
-The Stock Detail page (Phase 2) makes the dashboard's **only** network call — one
-cached yfinance request for a 1-year price chart, which degrades to a caption if it
-fails. Everything else on every page comes from DuckDB.
+- **Alerts** (Phase 3) — the acknowledge flow: one `UPDATE`, on one column.
+- **Portfolio** (Phase 4) — the CSV import. No skill can derive which positions
+  you hold, so this is where they enter. PRD §6 named this page as the sole UI
+  write path from the outset.
+
+Two pages reach the network; every other value on every page comes from DuckDB.
+Neither fetches on load, so no page costs a request unasked:
+
+- **Stock Detail** (Phase 2) — one cached yfinance request for a 1-year price
+  chart, degrading to a caption if it fails.
+- **Portfolio** (Phase 4) — quotes for the open positions, only when **Refresh
+  prices** is pressed. Offline the page still lists the book; the price columns
+  are simply blank and every position reads `hold`.
 
 ## Layout
 
@@ -137,14 +148,15 @@ fails. Everything else on every page comes from DuckDB.
 .claude/skills/hunt-*/SKILL.md   # one per pipeline stage; no Python
                                  # hunt-moat/SKILL.md holds the moat RUBRIC
 src/
-  app.py  pages/                 # Streamlit; read-only
+  app.py  pages/                 # Streamlit; read-only except Alerts + Portfolio
   config.py                      # thresholds (versioned) + .env scalars
   db.py  schema.sql              # the ONLY SQL surface; 9 tables
   universe.py  scorer.py         # Phase 1 — yfinance
   xbrl.py                        # Phase 2 — the EDGAR client; the ONE place
                                  #   the 10 req/s cap is enforced
   roic.py  moat.py               # Phase 2 — Stage 3 scoring, Stage 4 fetch/save
-  signals.py  monitor.py  portfolio.py   # Phases 3-4 (not yet)
+  signals.py  monitor.py         # Phase 3 — entry signals, sell triggers
+  portfolio.py                   # Phase 4 — positions, 100x progress, rules
 tests/                           # network fully mocked; green offline
 data/
   100baggers.duckdb              # gitignored — the app's entire state

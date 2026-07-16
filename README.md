@@ -72,9 +72,14 @@ uv run streamlit run src/app.py --server.port 8501
 Pipeline Overview (funnel + exclusion breakdown), Watchlist (ranked, filterable),
 Stock Detail (price chart, market cap, every metric grouped by stage, moat notes,
 risks, and the 100x plausibility check — enough to answer "why is this on my
-watchlist?" without re-running anything), and Alerts (buy signals, sell triggers,
-red flags, TAM alerts, with an acknowledge flow). It opens the database
-**read-only** everywhere except the one acknowledge write.
+watchlist?" without re-running anything), Alerts (buy signals, sell triggers,
+red flags, TAM alerts, with an acknowledge flow), and Portfolio (the book you
+hold, marked to market, each position's progress toward 100x, and a hold-biased
+action — import it as CSV, download a valued snapshot).
+
+It opens the database **read-only** everywhere except two writes, neither of
+which touches screening state: acknowledging an alert, and importing positions.
+Prices on the Portfolio page are fetched only when you ask.
 
 Every module is also a CLI, which is exactly what the skills shell out to:
 
@@ -87,24 +92,28 @@ uv run python -m src.moat     save --ticker XYZ --json-file moat.json
 uv run python -m src.signals  --check
 uv run python -m src.monitor  check --ticker XYZ
 uv run python -m src.monitor  save  --ticker XYZ --json-file flags.json
+uv run python -m src.portfolio import --csv holdings.csv [--replace]
+uv run python -m src.portfolio list [--prices]
 uv run python -m src.db       --status
 ```
 
 ## Status
 
-**Phases 1, 2 and 3 of 4 are implemented.** The funnel runs end to end and produces
-Watchlist B; entry signals and position monitoring sit on top of it. The full
-9-table schema shipped in Phase 1, so no stage ever migrates.
+**Phases 1, 2 and 3 of 4 are implemented, and Phase 4 is half done.** The funnel
+runs end to end and produces Watchlist B; entry signals and position monitoring
+sit on top of it. The full 9-table schema shipped in Phase 1, so no stage ever
+migrates.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Universe, quant scoring (0–14), status, dashboard | **Done** |
 | 2 | ROIC from SEC XBRL (0–10), moat scoring by Claude (0–10), Stock Detail | **Done** |
 | 3 | Entry signals, sell triggers, 8-K red flags, Alerts page | **Done** — but never yet run against live EDGAR; mocked tests only |
-| 4 | Portfolio recommendations | Not started |
+| 4 | Portfolio: the book, 100x progress, per-position action | **Done** — Portfolio page + `src/portfolio.py` |
+| 4 | Portfolio judgement: `/hunt-portfolio suggest`, close, audit trail | Not started |
 
-The `portfolio` table stays empty until Phase 4, so `/hunt-monitor` currently runs
-one ticker at a time via `--ticker` rather than over open positions.
+Now that the `portfolio` table fills, `/hunt-monitor` runs over open positions as
+designed; `--ticker` remains for names you do not yet hold.
 
 `SEC_USER_AGENT` is **mandatory** from Phase 2 on: the SEC rejects requests
 without a contact email. EDGAR's 10 req/s cap is enforced in code, which is why
@@ -152,6 +161,7 @@ All network calls are mocked; the suite is green with no internet.
 | [IMPLEMENTATION.md](IMPLEMENTATION.md) | Current state |
 | [docs/architecture.md](docs/architecture.md) | The Python/Claude seam |
 | [docs/schema.md](docs/schema.md) | DuckDB DDL and column semantics |
+| [docs/portfolio.md](docs/portfolio.md) | The book: hold bias, the rules, the CSV contract |
 | [docs/scoring.md](docs/scoring.md) | Rubrics, exclusions, stage gates, the 100x check |
 | [docs/data-sources.md](docs/data-sources.md) | EDGAR contract, rate limits, tag-coverage traps |
 | [docs/first-principles.md](docs/first-principles.md) | How to read a score, and why 100x needs a market to fit into |

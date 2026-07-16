@@ -358,10 +358,69 @@ def upsert_snapshot(con, ticker: str, snapshot_date: dt.date | None = None, **co
 
 
 def open_positions(con) -> pd.DataFrame:
-    """Phase 4 populates this table; until then /hunt-monitor runs on --ticker."""
+    """The default target list for /hunt-monitor. Filled by the Portfolio page."""
     return con.execute(
         "SELECT * FROM portfolio WHERE status = 'open' ORDER BY ticker"
     ).df()
+
+
+def latest_monitor_action(con) -> dict[str, str]:
+    """Ticker -> the most recent `monitoring_log.recommended_action`.
+
+    How a position learns whether its thesis still holds. The verdict is the
+    monitor's, derived from the XBRL trigger table with evidence behind it — the
+    portfolio never re-decides it from price, and a ticker never checked simply
+    has no entry (missing data is a coverage gap, not a clean bill of health).
+    """
+    rows = con.execute(
+        """
+        SELECT ticker, recommended_action FROM monitoring_log
+        QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY check_date DESC) = 1
+        """
+    ).fetchall()
+    return {r[0]: r[1] for r in rows if r[1]}
+
+
+# --- portfolio (Phase 4) -----------------------------------------------------
+
+
+def add_position(
+    con, ticker: str, entry_price: float, shares: float,
+    entry_date: dt.date | None = None, thesis: str | None = None,
+    horizon_months: int | None = None, entry_roic: float | None = None,
+) -> None:
+    """Open a position. One row per buy — a second buy of the same ticker is a
+    second row, not an edit, so the entry price of each tranche is preserved."""
+    con.execute(
+        """
+        INSERT INTO portfolio
+            (ticker, entry_date, entry_price, shares, thesis, horizon_months,
+             entry_roic, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'open')
+        """,
+        [ticker, entry_date or dt.date.today(), entry_price, shares, thesis,
+         horizon_months, entry_roic],
+    )
+
+
+def positions(con) -> pd.DataFrame:
+    """Every position, open or closed. `open_positions` is the open subset."""
+    return con.execute("SELECT * FROM portfolio ORDER BY ticker, entry_date").df()
+
+
+def delete_positions(con, tickers: list[str] | None = None) -> int:
+    """Drop positions so a corrected CSV can be re-imported.
+
+    The portfolio is the one table a user maintains by hand, so it needs an undo
+    that the screening tables — rebuilt by re-running their skill — do not.
+    """
+    if tickers is None:
+        n = con.execute("SELECT count(*) FROM portfolio").fetchone()[0]
+        con.execute("DELETE FROM portfolio")
+        return n
+    for t in tickers:
+        con.execute("DELETE FROM portfolio WHERE ticker = ?", [t])
+    return len(tickers)
 
 
 # --- reporting --------------------------------------------------------------

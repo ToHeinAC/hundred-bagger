@@ -12,9 +12,9 @@ The full 9-table DDL ships in Phase 1 so no later phase migrates. Tables the cur
 | `insider_events` | Form 4 transactions, cluster-buy flag | `/hunt-signals` | no (Phase 3) |
 | `alerts` | buy / sell / red-flag alerts, acknowledged flag | `/hunt-signals`, `/hunt-monitor` | no (Phase 3) |
 | `monitoring_log` | per-check sell-trigger flags + recommended action | `/hunt-monitor` | no (Phase 3) |
-| `portfolio` | open/closed positions with thesis and entry ROIC | `/hunt-portfolio`, dashboard | no (Phase 4) |
-| `portfolio_actions` | hold/add/trim/sell/review history | `/hunt-portfolio`, dashboard | no (Phase 4) |
-| `portfolio_snapshots` | daily price/value per position | `/hunt-monitor` | no (Phase 4) |
+| `portfolio` | open/closed positions with thesis and entry ROIC | dashboard Portfolio page (CSV import), `/hunt-portfolio` | yes (open positions) |
+| `portfolio_actions` | hold/add/trim/sell/review history | `/hunt-portfolio`, dashboard | no (Phase 4 remainder) |
+| `portfolio_snapshots` | daily price/value per position | `/hunt-monitor` | yes (once positions exist) |
 
 Five sequences (`seq_insider_events`, `seq_alerts`, `seq_monitoring_log`, `seq_portfolio`, `seq_portfolio_actions`) back the `BIGINT` surrogate keys on the append-only tables. The three keyed tables (`universe`, `scores`, `exclusions`) use natural keys instead and are upserted.
 

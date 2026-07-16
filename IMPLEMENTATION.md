@@ -4,11 +4,18 @@ Current state of the build. Purpose and scope live in [PRD.md](PRD.md); componen
 detail lives in [docs/](docs/). This file is the map, not the territory — keep it
 under 500 lines and push detail down.
 
-**Phases 1, 2 and 3 of 4 are complete.** Universe → quant scoring → ROIC → moat →
-dashboard runs end to end against live data and produces Watchlist B. Phase 3 adds
-entry signals and position monitoring on top of it — **live shakedown done
-2026-07-14 against real EDGAR + yfinance** (AMPH); both paths work end to end (see
-§4, §6).
+**Phases 1, 2 and 3 of 4 are complete; Phase 4 is half done.** Universe → quant
+scoring → ROIC → moat → dashboard runs end to end against live data and produces
+Watchlist B. Phase 3 adds entry signals and position monitoring on top of it —
+**live shakedown done 2026-07-14 against real EDGAR + yfinance** (AMPH); both
+paths work end to end (see §4, §6).
+
+Phase 4 now tracks the **book**: `src/portfolio.py` and the Portfolio page hold
+positions in DuckDB, mark them to market, and count each one's progress toward
+100x. Filling the `portfolio` table also turns `/hunt-monitor` into the batch it
+was designed as. What remains of Phase 4 is the *judgement* half — the
+`/hunt-portfolio` skill with `suggest`, position close, and the
+`portfolio_actions` audit trail (§7).
 
 ---
 
@@ -28,10 +35,11 @@ entry signals and position monitoring on top of it — **live shakedown done
 | Entry signals (Watchlist B) | `src/signals.py` | Done — cluster buys, valuation gates, price zone |
 | Sell-trigger table | `src/triggers.py` | Done — pure functions, no I/O |
 | Position monitoring (check/save) | `src/monitor.py` | Done — judgement is Claude's |
-| Dashboard | `src/app.py`, `src/pages/` | Done — Pipeline, Watchlist, Stock Detail, Alerts |
+| Dashboard | `src/app.py`, `src/pages/` | Done — Pipeline, Watchlist, Stock Detail, Alerts, Portfolio |
 | Skills | `.claude/skills/hunt-{universe,score,roic,moat,signals,monitor,status}/` | Done |
-| Tests | `tests/` | Done — 187, network mocked, green offline |
-| Portfolio | `src/portfolio.py` | **Not started** (Phase 4) |
+| Tests | `tests/` | Done — 199, network mocked, green offline |
+| Portfolio (positions, 100x, rules) | `src/portfolio.py`, `src/pages/5_Portfolio.py` | Done — CSV import, mark-to-market, hold-biased actions |
+| Portfolio judgement (`suggest`, close, audit trail) | `/hunt-portfolio` | **Not started** (§7) |
 
 `total_score` (0–34) is now actually reachable: `quant_score` (0–14) +
 `roic_score` (0–10) + `moat_score` (0–10).
@@ -89,6 +97,8 @@ uv run python -m src.moat     save --ticker XYZ (--json '{...}' | --json-file PA
 uv run python -m src.signals  --check [--ticker XYZ]
 uv run python -m src.monitor  check [--ticker XYZ]
 uv run python -m src.monitor  save --ticker XYZ (--json '{...}' | --json-file PATH)
+uv run python -m src.portfolio import --csv PATH [--replace]
+uv run python -m src.portfolio list [--prices]
 uv run python -m src.db       --init | --status
 ```
 
@@ -98,7 +108,18 @@ judge → save pattern: `check` computes the mechanical triggers and drops recen
 same log row** and re-derives the action. **`save` without a `check` first raises**
 — the mechanical triggers are half the verdict.
 
-Phase 4 extends this with `src.portfolio` — see [PRD.md](PRD.md) §10.
+`src.portfolio` deliberately does **not** follow that shape: importing a CSV and
+marking it to market needs no judgement, so it has no fetch → judge → save loop.
+The judgement half of Phase 4 (`/hunt-portfolio suggest`) will — see
+[PRD.md](PRD.md) §10.
+
+`src.portfolio` answers *what is held* (the user's fact, imported) and *how far
+it has come* (arithmetic). It deliberately does **not** answer *whether the
+thesis still holds*: `recommend` reads the monitor's evidenced verdict out of
+`monitoring_log` rather than re-deriving one from price, which is why there is no
+hand-set `thesis_broken` flag. Mind the two action vocabularies —
+`portfolio_actions.action` is lowercase and has `add`; `triggers.ACTIONS` is
+neither. Full detail: [docs/portfolio.md](docs/portfolio.md).
 
 ---
 
@@ -353,9 +374,12 @@ strings are never interpolated into SQL.
   forms; filter on `f.form` yourself), but the production path
   `Company(t).get_filings(form="4")` is correctly scoped. edgartools **5.42.0**
   (`market_trades` → `None`; `amendments=False`) otherwise held up.
-- **The `portfolio` table is empty until Phase 4**, so `/hunt-monitor` runs via
-  `--ticker` for now, and `portfolio_snapshots` only fill for open positions —
-  i.e. not at all yet.
+- **`/hunt-monitor`'s batch path is live but unshaken-down.** The `portfolio`
+  table now fills, so `check` with no `--ticker` picks up open positions (verified
+  against a temp DB) and `portfolio_snapshots` finally fill. But
+  `monitor._snapshot` stays **untested and never run live** — dead code while the
+  table was empty, and no test mocks its `.info` call. Treat the first
+  `/hunt-monitor` over a real book as its shakedown.
 - **Alert dedupe is per-day.** `db.add_alert` collapses the same
   `ticker + type + message` within one day, so a re-run cannot resurrect an alert
   the user acknowledged. The *same* alert raised on a **later** day is a new row —
@@ -366,9 +390,20 @@ strings are never interpolated into SQL.
   schema safe to evolve**, and splitting the file to satisfy a line count would
   trade a real guarantee for a cosmetic one. The tradeoff is the file's size; the
   alternative was two files that each half-own the schema.
-- **The test suite is at 187 of the 200-test budget**, leaving 13 for Phase 4's
-  portfolio work. Merging or dropping tests will be needed rather than growing past
-  the cap.
+- **The test suite is at 199 of the 200-test budget.** Phase 4's portfolio work
+  took 12 of the 13 that were left, which is why `test_portfolio.py` loops over
+  its bad-CSV cases instead of parametrizing them and its `recommend` table
+  carries four cases rather than ten. **There is one test of headroom**: the
+  Phase 4 remainder cannot be tested without first merging or dropping tests
+  elsewhere. That is the intended trade (AGENTS §5.3), not an oversight.
+- **Three places now fetch a quote, two ways.** `monitor._snapshot` and `signals`
+  inline `yf.Ticker(t).info`; `portfolio.fetch_prices` uses the lighter
+  `fast_info` because it prices a whole book at once. A shared `last_price()` is
+  the obvious consolidation, skipped here because it means editing two working
+  Phase 3 paths to land a Phase 4 feature (AGENTS §3). Do it when one next changes.
+- **`src/portfolio.py` is ~275 lines**, over the PRD's ~200-line bar; a third is
+  docstring and rule comments. The file's job is to *not* re-decide the thesis,
+  which is only obvious if it says so.
 - **`src/moat.py` is 261 lines**, over the PRD's ~200-line bar, after the TAM check
   landed on top of the moat judgement. Kept whole: the two halves share `validate`
   and one save path, and splitting them would put the payload contract in two files.
@@ -412,13 +447,35 @@ strings are never interpolated into SQL.
 
 ---
 
-## 7. Next: Phase 4
+## 7. Next: the rest of Phase 4
 
-Portfolio: `src/portfolio.py`, the `/hunt-portfolio` skill (including position
-sizing / `suggest`), and the Portfolio dashboard page — the second dashboard write
-path, and the one PRD §6 always allowed. `docs/dashboard.md` is still unwritten and
-belongs with it. Filling the `portfolio` table is what turns `/hunt-monitor` from a
-`--ticker` tool into the batch it was designed as.
+Done: `src/portfolio.py` + `src/pages/5_Portfolio.py` — the book, its progress
+toward 100x, the hold-biased action ([docs/portfolio.md](docs/portfolio.md)). The
+page is the second dashboard write path PRD §6 always allowed, and filling the
+`portfolio` table turned `/hunt-monitor` into the batch it was designed as.
+
+Left — all of it the *judgement* half, which is Claude's, not Python's:
+
+- **`/hunt-portfolio suggest`** — fetch → judge → save over a position's thesis,
+  entry-vs-current ROIC, flags and prior actions, emitting `{action,
+  horizon_months, confidence, reason, key_risks, sell_triggers}` to confirm (§10).
+- **`portfolio_actions`** — the audit trail (`created_by` ∈ `manual|claude|monitor`).
+  Unwritten: the page shows the current action, keeps no history of it.
+- **Position close** — `exit_date`, `exit_price`, `realized_return_pct`. A
+  position can today only be imported or dropped, never closed, so `status =
+  'closed'` is unreachable and realized return never computed.
+- **Position sizing**, and **`docs/dashboard.md`**, still unwritten.
+
+**Deviation from the spec, on purpose.** PRD §10 specifies the CLI as
+`src.portfolio add|update|close|review --ticker X`; what exists is
+`import --csv | list`. A CSV import is how a book actually arrives — typed
+one-position-at-a-time entry is the slower path to the same table — and
+`add|update|close|review` are the verbs the *judgement* half needs, so they land
+with `/hunt-portfolio`. The PRD is unedited: it is the target, and this is a
+subset of it.
+
+Budget note: the remainder needs test headroom that does not exist (§6) — merge
+or drop before adding.
 
 ---
 
@@ -428,6 +485,7 @@ belongs with it. Filling the `portfolio` table is what turns `/hunt-monitor` fro
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | The Python/Claude seam; fetch→judge→save; invariants |
 | [docs/schema.md](docs/schema.md) | Full DDL, column semantics, what's populated when |
+| [docs/portfolio.md](docs/portfolio.md) | The book: hold bias, the rules, the CSV contract, who owns the thesis question |
 | [docs/scoring.md](docs/scoring.md) | Quant, ROIC, and moat rubrics; auto-exclusions; gates; the 100x check |
 | [docs/data-sources.md](docs/data-sources.md) | EDGAR contract, rate limits, tag-coverage traps |
 | [docs/first-principles.md](docs/first-principles.md) | How to read a score: deconstruction, which thresholds are convention, the 100x rule. Read by `/hunt-score`, `/hunt-roic`, `/hunt-moat` |

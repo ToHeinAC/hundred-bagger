@@ -181,6 +181,17 @@ RED_FLAGS = (
 EIGHTK_LOOKBACK_DAYS = 90
 EIGHTK_CHAR_CAP = 20_000
 
+# --- Phase 4: portfolio position rules --------------------------------------
+# Deliberately hold-biased (Mayer; Phelps): the chief enemy of a 100-bagger is
+# selling too soon, so a position is `hold` unless something specific says
+# otherwise. Note what is absent — no rule trims a winner for being up. `trim`
+# here is risk management (one position dominating the book), never
+# profit-taking. Whether the thesis still holds is not decided by these numbers:
+# that is `triggers.py`, read off `monitoring_log.recommended_action`.
+
+ADD_DIP_PCT = -0.20  # position this far below cost -> thesis-consistent top-up
+CONCENTRATION_CAP = 0.25  # single position past this share of the book -> trim
+
 # --- Paths ------------------------------------------------------------------
 
 MOAT_INPUT_DIR = REPO_ROOT / "data" / "moat_input"
