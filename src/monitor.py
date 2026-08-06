@@ -117,7 +117,8 @@ def save_ticker(con, ticker: str, payload: dict) -> dict:
 
     mechanical = [c for c in json.loads(row["flags"] or "[]") if c not in config.RED_FLAGS]
     action = triggers.recommend(mechanical, red_flags)
-    combined = "; ".join(p for p in [row["notes"] or "", notes] if p)
+    prior = row["notes"] if isinstance(row["notes"], str) else ""
+    combined = "; ".join(p for p in [prior, notes] if p)
 
     db.add_monitoring_log(con, ticker, mechanical + red_flags, action, combined)
     for code in red_flags:
