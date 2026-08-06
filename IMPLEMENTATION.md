@@ -98,7 +98,7 @@ uv run python -m src.signals  --check [--ticker XYZ]
 uv run python -m src.monitor  check [--ticker XYZ]
 uv run python -m src.monitor  save --ticker XYZ (--json '{...}' | --json-file PATH)
 uv run python -m src.portfolio import --csv PATH [--replace]
-uv run python -m src.portfolio list [--prices]
+uv run python -m src.portfolio list [--prices] [--currency EUR|USD]
 uv run python -m src.db       --init | --status
 ```
 
@@ -117,7 +117,12 @@ The judgement half of Phase 4 (`/hunt-portfolio suggest`) will — see
 it has come* (arithmetic). It deliberately does **not** answer *whether the
 thesis still holds*: `recommend` reads the monitor's evidenced verdict out of
 `monitoring_log` rather than re-deriving one from price, which is why there is no
-hand-set `thesis_broken` flag. Mind the two action vocabularies —
+hand-set `thesis_broken` flag. A book can hold a Frankfurt listing next to a
+Nasdaq one, so each position carries its own `currency` and `portfolio.convert`
+restates the whole book in the one the page's toggle picks (EUR default) using
+Yahoo's `EUR=X`; ratios are unaffected, only levels. Selecting a row opens that
+company's Yahoo profile and full-history chart, in the ticker's own currency.
+Mind the two action vocabularies —
 `portfolio_actions.action` is lowercase and has `add`; `triggers.ACTIONS` is
 neither. Full detail: [docs/portfolio.md](docs/portfolio.md).
 
@@ -395,13 +400,16 @@ strings are never interpolated into SQL.
   its bad-CSV cases instead of parametrizing them and its `recommend` table
   carries four cases rather than ten. **There is one test of headroom**: the
   Phase 4 remainder cannot be tested without first merging or dropping tests
-  elsewhere. That is the intended trade (AGENTS §5.3), not an oversight.
+  elsewhere. That is the intended trade (AGENTS §5.3), not an oversight. The
+  currency toggle was landed inside that budget by paying for its one new test
+  with two merges — the unpriced-totals case folded into the valuation test, the
+  FX degradation into the conversion test.
 - **Three places now fetch a quote, two ways.** `monitor._snapshot` and `signals`
   inline `yf.Ticker(t).info`; `portfolio.fetch_prices` uses the lighter
   `fast_info` because it prices a whole book at once. A shared `last_price()` is
   the obvious consolidation, skipped here because it means editing two working
   Phase 3 paths to land a Phase 4 feature (AGENTS §3). Do it when one next changes.
-- **`src/portfolio.py` is ~275 lines**, over the PRD's ~200-line bar; a third is
+- **`src/portfolio.py` is ~450 lines**, over the PRD's ~200-line bar; a third is
   docstring and rule comments. The file's job is to *not* re-decide the thesis,
   which is only obvious if it says so.
 - **`src/moat.py` is 261 lines**, over the PRD's ~200-line bar, after the TAM check

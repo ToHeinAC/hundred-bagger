@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS portfolio (
     entry_date           DATE    NOT NULL,
     entry_price          DOUBLE  NOT NULL,
     shares               DOUBLE  NOT NULL,
+    currency             VARCHAR NOT NULL DEFAULT 'USD',  -- currency of entry_price
     thesis               VARCHAR,
     horizon_months       INTEGER,
     entry_roic           DOUBLE,
@@ -130,6 +131,10 @@ CREATE TABLE IF NOT EXISTS portfolio (
     exit_price           DOUBLE,
     realized_return_pct  DOUBLE
 );
+
+-- Migration: a database created before `currency` existed. Every pre-existing
+-- position was entered in USD, which is what the default says.
+ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'USD';
 
 CREATE TABLE IF NOT EXISTS portfolio_actions (
     id             BIGINT PRIMARY KEY DEFAULT nextval('seq_portfolio_actions'),

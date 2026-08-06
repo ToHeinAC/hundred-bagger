@@ -66,13 +66,14 @@ Two action vocabularies exist and they are **not** the same:
 
 Import and snapshot round-trip through the same parser.
 
-- Required: `ticker`, `shares`, `entry_price`. Optional: `entry_date`
-  (`YYYY-MM-DD`, defaults to today), `thesis`.
+- Required: `ticker`, `shares`, `entry_price`. Optional: `currency`
+  (`USD`|`EUR`, defaults to `USD`), `entry_date` (`YYYY-MM-DD`, defaults to
+  today), `thesis`.
 - `quantity` / `buy_price` are accepted as aliases for `shares` / `entry_price`.
 - Headers are matched case-insensitively and trimmed; tickers are upper-cased;
   blank lines are skipped.
-- A missing column, a non-numeric number or a bad date **raises**, naming the
-  row. A portfolio that is quietly wrong is worse than one that fails to load.
+- A missing column, a non-numeric number, a bad date or an unsupported currency
+  **raises**, naming the row. A portfolio that is quietly wrong is worse than one that fails to load.
 - Import appends by default; `--replace` empties the table first, so a corrected
   file is a re-import rather than a merge with what it was meant to fix.
 
@@ -88,7 +89,9 @@ sanctioned, neither accidental (see [architecture.md](architecture.md#streamlit-
    path from the outset; positions are the user's own facts.
 2. **It fetches quotes.** Only on **Refresh prices**, never on load. Offline the
    page still lists the book; price columns are blank and every position reads
-   `hold`.
+   `hold`. The one call it makes on load is the FX rate, and only when the book
+   holds more than one currency; selecting a row adds the profile and history
+   of that one ticker.
 
 `fetch_prices` uses yfinance `fast_info` (a whole book at once, quote only), while
 `monitor.py` and `signals.py` use the heavier `.info`. That duplication is known
@@ -97,6 +100,51 @@ and left alone deliberately — see IMPLEMENTATION §6.
 Unpriced positions are never dropped from the table: a position missing from the
 book is worse than one missing a number. Weights are taken against the *priced*
 value, so a partially priced book still yields sensible ones.
+
+## One currency
+
+yfinance quotes each ticker in its exchange's own currency, so a book holding
+`1VW.F` (Frankfurt, EUR) next to `TRAK` (Nasdaq, USD) cannot be summed as it
+stands. `currency` — per position, from the CSV — says which one a row is in,
+and `portfolio.convert` restates the whole book in the one the page's toggle
+selects (**EUR** by default, USD the alternative).
+
+- The rate is Yahoo's `EUR=X`, quoted as **EUR per 1 USD**, cached for an hour.
+- Entry price and quote are scaled by the *same* factor, so `multiple` and
+  `gain_pct` do not move: a currency is a unit, not a return. Only levels —
+  Cost, Value, Gain, Entry, Price — change with the toggle.
+- The toggle converts what is already in `st.session_state`; it never refetches
+  quotes.
+- No rate is **not** 1.0. If `EUR=X` cannot be quoted, the book is shown in its
+  native currencies with a warning, because a book converted at an assumed
+  parity is quietly wrong. Unrecognised currency codes are treated as USD rather
+  than dropping the row.
+- The `Native` column keeps each position's own currency visible, and the
+  snapshot CSV carries `currency` set to the displayed one, so it re-imports as
+  the same book.
+
+This is display only. The XBRL ratios never convert — see
+[data-sources.md](data-sources.md).
+
+## The selected ticker
+
+Selecting a row opens the company behind the position, straight from Yahoo:
+full name, the **whole listed history** as a plotly chart (`period="max"`, with a
+range slider), Yahoo's summary block — market cap, beta, PE, EPS, next earnings
+date, forward dividend and yield, ex-dividend date, 1-year target — and the
+business description. Labels are Yahoo's US wording and dates are `YYYY-MM-DD`,
+the format the CSV already uses; the page is English throughout. `portfolio.profile_rows` does the formatting and is the tested part;
+`fetch_profile`/`fetch_history` are the I/O and degrade to `{}`/`None`. Both are
+cached for an hour, and nothing is fetched until a row is selected.
+
+**This panel stays in the ticker's own currency**, unlike the table above it. A
+market cap or an EPS is a fact about the company, and a multi-year chart cannot
+be honestly rescaled by today's spot rate. Missing fields render as Yahoo's own
+`--`, never as a zero that reads like a fact.
+
+One caveat worth knowing: `period="max"` is the *listing's* history, not the
+company's. A secondary listing such as `1VW.F` (Cerillion on Frankfurt) starts
+when that line started trading, years after the primary `CER.L`.
 
 ## What is not here yet
 

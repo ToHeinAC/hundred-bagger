@@ -388,18 +388,23 @@ def add_position(
     con, ticker: str, entry_price: float, shares: float,
     entry_date: dt.date | None = None, thesis: str | None = None,
     horizon_months: int | None = None, entry_roic: float | None = None,
+    currency: str = "USD",
 ) -> None:
     """Open a position. One row per buy — a second buy of the same ticker is a
-    second row, not an edit, so the entry price of each tranche is preserved."""
+    second row, not an edit, so the entry price of each tranche is preserved.
+
+    `currency` is the currency of `entry_price`, and of the exchange the ticker
+    is quoted on — the Portfolio page needs it to state a mixed book in one.
+    """
     con.execute(
         """
         INSERT INTO portfolio
-            (ticker, entry_date, entry_price, shares, thesis, horizon_months,
-             entry_roic, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'open')
+            (ticker, entry_date, entry_price, shares, currency, thesis,
+             horizon_months, entry_roic, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')
         """,
-        [ticker, entry_date or dt.date.today(), entry_price, shares, thesis,
-         horizon_months, entry_roic],
+        [ticker, entry_date or dt.date.today(), entry_price, shares, currency,
+         thesis, horizon_months, entry_roic],
     )
 
 

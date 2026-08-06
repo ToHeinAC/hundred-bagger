@@ -90,9 +90,14 @@ Stage 1 (`src/universe.py`) and Stage 2 (`src/scorer.py`). Free, unofficial, and
 
 Also: `revenue_ttm` is filtered on server-side but **not returned**, so `universe.revenue_ttm` is NULL after Stage 1. Stage 2 backfills the real figure.
 
-### The dashboard's one network call
+### The dashboard's network calls
 
-Every dashboard page opens DuckDB `read_only=True` and otherwise touches nothing external. The single exception is the **Stock Detail** page's 1-year price chart, which calls `yf.Ticker(t).history()` behind a cache and degrades to a caption if yfinance fails. That is the only network call in the whole dashboard, and it should stay that way.
+Every dashboard page opens DuckDB `read_only=True` and otherwise touches nothing external. There are exactly two exceptions, both cached and both degrading to a caption or a blank cell rather than raising:
+
+- **Stock Detail**'s 1-year price chart — `yf.Ticker(t).history()`.
+- **Portfolio** — `fast_info["last_price"]` per position, only when **Refresh prices** is pressed; `EUR=X` on load when the book holds more than one currency ([portfolio.md](portfolio.md#one-currency)); and `.info` + `history(period="max")` for the one ticker whose row is selected, cached an hour. `EUR=X` is Yahoo's USD→EUR quote, **EUR per 1 USD**, and it is display-only: it restates the book in one currency and never touches a ratio or a score. No quote means the book reads in its native currencies, never at an assumed parity.
+
+That list should stay this short.
 
 ## 5. Form 4 — the insider signal, and its two landmines
 
